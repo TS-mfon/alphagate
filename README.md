@@ -131,7 +131,7 @@ Set these values in the deployment environment:
 NEXT_PUBLIC_APP_URL=https://your-domain.example
 X402_ENABLED=true
 X402_PAY_TO=0xYourBaseTreasuryAddress
-X402_FACILITATOR_URL=https://api.cdp.coinbase.com/platform/v2/x402
+X402_FACILITATOR_URL=https://facilitator.payai.network
 TREASURY_PRIVATE_KEY=0xBaseTreasurySignerPrivateKey
 LIVE_UPSTREAMS=true
 REQUIRE_GENLAYER=true

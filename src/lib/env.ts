@@ -10,7 +10,7 @@ export const env = {
   appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
   x402Enabled: bool("X402_ENABLED"),
   x402PayTo: (process.env.X402_PAY_TO ?? "0x0000000000000000000000000000000000000000") as Address,
-  facilitatorUrl: process.env.X402_FACILITATOR_URL ?? "https://api.cdp.coinbase.com/platform/v2/x402",
+  facilitatorUrl: process.env.X402_FACILITATOR_URL ?? "https://facilitator.payai.network",
   treasuryPrivateKey: process.env.TREASURY_PRIVATE_KEY as Hex | undefined,
   liveUpstreams: bool("LIVE_UPSTREAMS"),
   requireGenLayer: bool("REQUIRE_GENLAYER", process.env.NODE_ENV === "production"),
