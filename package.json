@@ -1,0 +1,47 @@
+{
+  "name": "alphagate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint --max-warnings=0 \"src/**/*.{ts,tsx}\"",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "lint:genlayer": ".venv/bin/genvm-lint check contracts/genlayer/AlphaGateConsensus.py",
+    "test:genlayer": ".venv/bin/pytest tests/direct -v",
+    "contract:deploy": "node scripts/deploy-genlayer.mjs"
+  },
+  "dependencies": {
+    "@x402/core": "2.19.0",
+    "@x402/evm": "2.19.0",
+    "@x402/fetch": "2.19.0",
+    "@x402/next": "2.19.0",
+    "genlayer-js": "1.1.8",
+    "lucide-react": "0.468.0",
+    "next": "16.2.11",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "viem": "2.55.5",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.2",
+    "@types/node": "22.19.7",
+    "@types/react": "19.0.7",
+    "@types/react-dom": "19.0.3",
+    "@typescript-eslint/eslint-plugin": "8.53.1",
+    "@typescript-eslint/parser": "8.53.1",
+    "eslint": "9.39.2",
+    "eslint-config-next": "16.2.11",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "esbuild": "0.28.1",
+    "postcss": "8.5.22",
+    "sharp": "0.35.3"
+  }
+}

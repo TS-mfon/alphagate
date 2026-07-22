@@ -1,0 +1,11 @@
+node_modules
+.next
+.env
+.env.local
+coverage
+*.tsbuildinfo
+__pycache__
+.pytest_cache
+.venv
+artifacts
+.vercel
