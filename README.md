@@ -13,6 +13,14 @@ AlphaGate provides two services:
 
 AlphaGate provides decision support only. It never signs or executes a trade.
 
+## Live Deployment
+
+- Dashboard: `https://alphagate-rho.vercel.app`
+- TradeGuard: `https://alphagate-rho.vercel.app/api/v1/trade-guard`
+- AlphaRouter: `https://alphagate-rho.vercel.app/api/v1/alpha-router`
+- GenLayer contract: `0xAAe4E58DB3E982531559935c22F4A28Fe89Fd521`
+- OKX.AI ASP identity: `#7525` (submitted for listing review)
+
 ## Architecture
 
 ```text
