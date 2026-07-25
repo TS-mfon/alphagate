@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMetrics, listRequests, genlayerConfiguration } from "@/lib/genlayer";
 import { errorPayload } from "@/lib/errors";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -10,7 +11,8 @@ export async function GET() {
     return NextResponse.json({
       requests,
       metrics,
-      genlayer: genlayerConfiguration()
+      genlayer: genlayerConfiguration(),
+      treasury: env.x402PayTo
     });
   } catch (error) {
     const payload = errorPayload(error);

@@ -302,6 +302,7 @@ export function genlayerConfiguration() {
   return {
     configured: configured(),
     contract: env.genlayerContract,
+    operator: configured() ? account().address : undefined,
     mode: configured() ? "consensus" as const : "local" as const
   };
 }

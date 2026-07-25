@@ -1,5 +1,7 @@
 "use client";
 
+import { ExactEvmScheme } from "@x402/evm";
+import { wrapFetchWithPaymentFromConfig } from "@x402/fetch";
 import {
   Activity,
   ArrowUpRight,
@@ -45,8 +47,10 @@ interface DashboardData {
   genlayer: {
     configured: boolean;
     contract?: string;
+    operator?: string;
     mode: "consensus" | "local";
   };
+  treasury?: string;
 }
 
 const emptyDashboard: DashboardData = {
@@ -79,6 +83,84 @@ function nowKey(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}`;
 }
 
+interface BrowserEthereum {
+  request(args: { method: string; params?: unknown[] }): Promise<unknown>;
+}
+
+function browserEthereum() {
+  return (window as Window & { ethereum?: BrowserEthereum }).ethereum;
+}
+
+function jsonTypedData(value: unknown) {
+  return JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item);
+}
+
+async function connectBasePayer() {
+  const ethereum = browserEthereum();
+  if (!ethereum) {
+    throw new Error("An EVM wallet is required to pay for this request.");
+  }
+
+  const accounts = await ethereum.request({ method: "eth_requestAccounts" }) as string[];
+  const address = accounts[0] as `0x${string}` | undefined;
+  if (!address) throw new Error("No wallet account was selected.");
+
+  try {
+    await ethereum.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: "0x2105" }]
+    });
+  } catch (error) {
+    const code = (error as { code?: number }).code;
+    if (code !== 4902) throw error;
+    await ethereum.request({
+      method: "wallet_addEthereumChain",
+      params: [{
+        chainId: "0x2105",
+        chainName: "Base",
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpcUrls: ["https://mainnet.base.org"],
+        blockExplorerUrls: ["https://basescan.org"]
+      }]
+    });
+  }
+
+  const signer = {
+    address,
+    async signTypedData(message: {
+      domain: Record<string, unknown>;
+      types: Record<string, unknown>;
+      primaryType: string;
+      message: Record<string, unknown>;
+    }) {
+      return await ethereum.request({
+        method: "eth_signTypedData_v4",
+        params: [address, jsonTypedData(message)]
+      }) as `0x${string}`;
+    }
+  };
+
+  return {
+    address,
+    fetch: wrapFetchWithPaymentFromConfig(fetch, {
+      schemes: [{
+        network: "eip155:*",
+        client: new ExactEvmScheme(signer)
+      }]
+    })
+  };
+}
+
+async function responsePayload(result: Response) {
+  const text = await result.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return { message: text.slice(0, 500) };
+  }
+}
+
 export function AlphaGateConsole() {
   const [service, setService] = useState<Service>("trade_guard");
   const [dashboard, setDashboard] = useState<DashboardData>(emptyDashboard);
@@ -86,6 +168,7 @@ export function AlphaGateConsole() {
   const [refreshing, setRefreshing] = useState(false);
   const [response, setResponse] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState("");
+  const [payer, setPayer] = useState("");
   const [guardForm, setGuardForm] = useState({
     assetType: "pair",
     asset: "BTC-USDT",
@@ -150,13 +233,20 @@ export function AlphaGateConsole() {
         };
 
     try {
-      const result = await fetch(endpoint, {
+      const paymentClient = await connectBasePayer();
+      setPayer(paymentClient.address);
+      const result = await paymentClient.fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body)
       });
-      const payload = await result.json();
-      if (!result.ok) throw new Error(payload.message ?? "Request failed");
+      const payload = await responsePayload(result);
+      if (!result.ok) {
+        const message = typeof payload.message === "string"
+          ? payload.message
+          : `Request failed with HTTP ${result.status}`;
+        throw new Error(message);
+      }
       setResponse(payload);
       await refresh();
     } catch (caught) {
@@ -227,6 +317,7 @@ export function AlphaGateConsole() {
                 {loading ? <Clock3 size={17} /> : <Send size={17} />}
                 {loading ? "Processing paid evidence..." : `Run ${service === "trade_guard" ? "TradeGuard" : "AlphaRouter"}`}
               </button>
+              {payer && <div className="payer-line"><WalletCards size={15} /> Paying from <span className="mono">{shortHash(payer)}</span></div>}
               {error && <div className="error-line"><TriangleAlert size={16} /> {error}</div>}
             </div>
 
@@ -247,8 +338,9 @@ export function AlphaGateConsole() {
               <Gauge size={16} />
             </div>
             <InfraRow icon={<DatabaseZap size={16} />} label="Persistence" value="GenLayer only" state="good" />
-            <InfraRow icon={<WalletCards size={16} />} label="Treasury" value="Base USDC" state="good" />
+            <InfraRow icon={<WalletCards size={16} />} label="Treasury" value={shortHash(dashboard.treasury)} state="good" />
             <InfraRow icon={<ShieldCheck size={16} />} label="Contract" value={shortHash(dashboard.genlayer.contract)} state={dashboard.genlayer.configured ? "good" : "warn"} />
+            <InfraRow icon={<ShieldCheck size={16} />} label="Operator" value={shortHash(dashboard.genlayer.operator)} state={dashboard.genlayer.configured ? "good" : "warn"} />
           </section>
 
           <section className="rail-section">

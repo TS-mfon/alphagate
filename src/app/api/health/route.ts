@@ -8,6 +8,11 @@ export async function GET() {
     service: "AlphaGate",
     x402: env.x402Enabled,
     live_upstreams: env.liveUpstreams,
+    treasury: {
+      network: "eip155:8453",
+      asset: "USDC",
+      address: env.x402PayTo
+    },
     genlayer: genlayerConfiguration(),
     persistence: "genlayer"
   });
