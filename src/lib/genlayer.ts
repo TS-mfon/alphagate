@@ -18,6 +18,13 @@ interface WriteOutcome {
   provisionalResult?: Record<string, unknown>;
 }
 
+export const GENLAYER_WAIT_POLICY = {
+  intervalMs: 2500,
+  defaultRetries: 8,
+  analysisRetries: 24,
+  failureRetries: 4
+} as const;
+
 function configured() {
   return Boolean(env.genlayerPrivateKey && env.genlayerContract);
 }
@@ -46,7 +53,11 @@ async function read<T>(functionName: string, args: unknown[] = []) {
   }) as T;
 }
 
-async function write(functionName: string, args: unknown[] = []): Promise<WriteOutcome> {
+async function write(
+  functionName: string,
+  args: unknown[] = [],
+  retries: number = GENLAYER_WAIT_POLICY.defaultRetries
+): Promise<WriteOutcome> {
   if (!env.genlayerContract) throw new AlphaGateError("genlayer_unavailable", "GenLayer contract is not configured", 503, true);
   const hash = await client().writeContract({
     account: account(),
@@ -55,12 +66,26 @@ async function write(functionName: string, args: unknown[] = []): Promise<WriteO
     args: args as never[],
     value: 0n
   }) as Hex;
-  const receipt = await client().waitForTransactionReceipt({
-    hash: hash as GenLayerHash,
-    status: TransactionStatus.FINALIZED,
-    retries: 50,
-    interval: 2500
-  }) as Record<string, unknown>;
+  let receipt: Record<string, unknown>;
+  try {
+    receipt = await client().waitForTransactionReceipt({
+      hash: hash as GenLayerHash,
+      status: TransactionStatus.ACCEPTED,
+      retries,
+      interval: GENLAYER_WAIT_POLICY.intervalMs
+    }) as Record<string, unknown>;
+  } catch (error) {
+    throw new AlphaGateError(
+      "genlayer_pending",
+      `GenLayer ${functionName} did not reach a decided state in time`,
+      503,
+      true,
+      {
+        transaction_hash: hash,
+        cause: error instanceof Error ? error.message : "receipt timeout"
+      }
+    );
+  }
 
   const resultName = String(receipt.resultName ?? receipt.result_name ?? "");
   const statusName = String(receipt.statusName ?? receipt.status_name ?? "");
@@ -257,7 +282,7 @@ export async function analyzeRequest(
     JSON.stringify(evidence),
     evidenceHash,
     upstreamCostUnits
-  ]);
+  ], GENLAYER_WAIT_POLICY.analysisRetries);
   if (outcome.consensusStatus === "undetermined") {
     return provisionalStored(request, outcome, evidenceHash, upstreamCostUnits);
   }
@@ -273,7 +298,7 @@ export async function failRequest(requestId: string, error: string) {
     return;
   }
   try {
-    await write("fail_request", [requestId, error]);
+    await write("fail_request", [requestId, error], GENLAYER_WAIT_POLICY.failureRetries);
   } catch {
     // Preserve the original request failure.
   }

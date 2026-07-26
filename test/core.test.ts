@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { deterministicTradeGuard } from "../src/lib/decision";
+import { GENLAYER_WAIT_POLICY } from "../src/lib/genlayer";
 import { canonicalJson, requestId, sha256 } from "../src/lib/hash";
 import {
   clearLocalRequests,
@@ -144,6 +145,19 @@ describe("x402 discovery metadata", () => {
 
     assert.equal(method(discoveryExtensions.trade_guard), "POST");
     assert.equal(method(discoveryExtensions.alpha_router), "POST");
+  });
+});
+
+describe("GenLayer serverless timing policy", () => {
+  it("leaves time for upstream calls and failure recording", () => {
+    const analysisWait =
+      GENLAYER_WAIT_POLICY.analysisRetries * GENLAYER_WAIT_POLICY.intervalMs;
+    const failureWait =
+      GENLAYER_WAIT_POLICY.failureRetries * GENLAYER_WAIT_POLICY.intervalMs;
+
+    assert.ok(analysisWait <= 60_000);
+    assert.ok(failureWait <= 10_000);
+    assert.ok(45_000 + 20_000 + analysisWait + failureWait < 150_000);
   });
 });
 
