@@ -11,6 +11,7 @@ import {
 import { formatUsdc, parseUsdc, retainedUnits } from "../src/lib/money";
 import { alphaRouterSchema, tradeGuardSchema, type TradeGuardInput } from "../src/lib/schemas";
 import { approvedPaymentRequirements } from "../src/lib/upstreamPolicy";
+import { discoveryExtensions } from "../src/lib/x402";
 import type { EvidenceItem, StoredRequest } from "../src/lib/types";
 
 const pairInput: TradeGuardInput = {
@@ -133,6 +134,16 @@ describe("upstream payment policy", () => {
       { ...approved, payTo: "0x0000000000000000000000000000000000000001" },
       { ...approved, extra: { ...approved.extra, assetTransferMethod: "permit2" } }
     ]).length, 0);
+  });
+});
+
+describe("x402 discovery metadata", () => {
+  it("declares POST for every JSON-body service", () => {
+    const method = (extension: typeof discoveryExtensions.trade_guard) =>
+      (extension.bazaar.info.input as { method?: string }).method;
+
+    assert.equal(method(discoveryExtensions.trade_guard), "POST");
+    assert.equal(method(discoveryExtensions.alpha_router), "POST");
   });
 });
 

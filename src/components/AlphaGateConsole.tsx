@@ -9,9 +9,12 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock3,
+  Copy,
   DatabaseZap,
   ExternalLink,
   Gauge,
+  LoaderCircle,
+  LockKeyhole,
   RefreshCw,
   Route,
   Send,
@@ -22,6 +25,13 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Service = "trade_guard" | "alpha_router";
+type RequestPhase = "idle" | "connecting" | "paying" | "complete";
+
+interface UiError {
+  title: string;
+  detail: string;
+  retryable: boolean;
+}
 
 interface RequestRecord {
   requestId: string;
@@ -87,6 +97,12 @@ interface BrowserEthereum {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 }
 
+const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const SERVICE_PRICES: Record<Service, string> = {
+  trade_guard: "100000",
+  alpha_router: "250000"
+};
+
 function browserEthereum() {
   return (window as Window & { ethereum?: BrowserEthereum }).ethereum;
 }
@@ -98,7 +114,7 @@ function jsonTypedData(value: unknown) {
 async function connectBasePayer() {
   const ethereum = browserEthereum();
   if (!ethereum) {
-    throw new Error("An EVM wallet is required to pay for this request.");
+    throw new Error("wallet_missing");
   }
 
   const accounts = await ethereum.request({ method: "eth_requestAccounts" }) as string[];
@@ -125,6 +141,15 @@ async function connectBasePayer() {
     });
   }
 
+  return { address, ethereum };
+}
+
+function paymentFetch(
+  address: `0x${string}`,
+  ethereum: BrowserEthereum,
+  service: Service,
+  treasury: string
+) {
   const signer = {
     address,
     async signTypedData(message: {
@@ -140,15 +165,23 @@ async function connectBasePayer() {
     }
   };
 
-  return {
-    address,
-    fetch: wrapFetchWithPaymentFromConfig(fetch, {
-      schemes: [{
-        network: "eip155:*",
-        client: new ExactEvmScheme(signer)
-      }]
-    })
-  };
+  return wrapFetchWithPaymentFromConfig(fetch, {
+    schemes: [{
+      network: "eip155:8453",
+      client: new ExactEvmScheme(signer)
+    }],
+    policies: [(_version, requirements) => requirements.filter(requirement =>
+      requirement.scheme === "exact"
+      && requirement.network === "eip155:8453"
+      && requirement.asset.toLowerCase() === BASE_USDC.toLowerCase()
+      && requirement.payTo.toLowerCase() === treasury.toLowerCase()
+      && requirement.amount === SERVICE_PRICES[service]
+      && (
+        requirement.extra?.assetTransferMethod === undefined
+        || requirement.extra.assetTransferMethod === "eip3009"
+      )
+    )]
+  });
 }
 
 async function responsePayload(result: Response) {
@@ -161,13 +194,78 @@ async function responsePayload(result: Response) {
   }
 }
 
+function readableError(caught: unknown): UiError {
+  const error = caught as { code?: number; message?: string };
+  const message = error?.message ?? "";
+
+  if (message === "wallet_missing") {
+    return {
+      title: "Wallet not found",
+      detail: "Install or enable an EVM wallet, then reconnect on Base.",
+      retryable: true
+    };
+  }
+  if (error?.code === 4001 || /rejected|denied/i.test(message)) {
+    return {
+      title: "Request cancelled",
+      detail: "The wallet signature was not approved. No payment was sent.",
+      retryable: true
+    };
+  }
+  if (/insufficient|balance/i.test(message)) {
+    return {
+      title: "Insufficient USDC",
+      detail: "The connected wallet needs enough Base USDC for this service.",
+      retryable: true
+    };
+  }
+  return {
+    title: "Request failed",
+    detail: message || "The service could not complete the paid request.",
+    retryable: true
+  };
+}
+
+function responseError(result: Response, payload: Record<string, unknown>): UiError {
+  const header = result.headers.get("PAYMENT-REQUIRED");
+  if (header) {
+    try {
+      const challenge = JSON.parse(atob(header)) as { error?: string };
+      if (challenge.error) {
+        return {
+          title: "Payment was not settled",
+          detail: challenge.error,
+          retryable: true
+        };
+      }
+    } catch {
+      // Fall back to the HTTP status when a proxy returns a malformed challenge.
+    }
+  }
+
+  return {
+    title: typeof payload.error === "string" ? payload.error.replaceAll("_", " ") : "Request failed",
+    detail: typeof payload.message === "string"
+      ? payload.message
+      : `The service returned HTTP ${result.status}.`,
+    retryable: payload.retryable !== false
+  };
+}
+
+function resultLabel(service: Service, result: Record<string, unknown>) {
+  if (service === "trade_guard") return String(result.verdict ?? "Completed");
+  return String(result.action ?? "Completed");
+}
+
 export function AlphaGateConsole() {
   const [service, setService] = useState<Service>("trade_guard");
   const [dashboard, setDashboard] = useState<DashboardData>(emptyDashboard);
   const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<RequestPhase>("idle");
   const [refreshing, setRefreshing] = useState(false);
   const [response, setResponse] = useState<Record<string, unknown> | null>(null);
-  const [error, setError] = useState("");
+  const [responseView, setResponseView] = useState<"summary" | "json">("summary");
+  const [error, setError] = useState<UiError | null>(null);
   const [payer, setPayer] = useState("");
   const [guardForm, setGuardForm] = useState({
     assetType: "pair",
@@ -209,10 +307,27 @@ export function AlphaGateConsole() {
     return `${Number((retained * 10_000n) / gross) / 100}%`;
   }, [dashboard.metrics]);
 
+  async function connectWallet() {
+    setError(null);
+    setPhase("connecting");
+    try {
+      const wallet = await connectBasePayer();
+      setPayer(wallet.address);
+      return wallet;
+    } catch (caught) {
+      setError(readableError(caught));
+      throw caught;
+    } finally {
+      setPhase(current => current === "connecting" ? "idle" : current);
+    }
+  }
+
   async function submit() {
     setLoading(true);
+    setPhase("connecting");
     setResponse(null);
-    setError("");
+    setResponseView("summary");
+    setError(null);
     const endpoint = service === "trade_guard" ? "/api/v1/trade-guard" : "/api/v1/alpha-router";
     const body = service === "trade_guard"
       ? {
@@ -233,26 +348,31 @@ export function AlphaGateConsole() {
         };
 
     try {
-      const paymentClient = await connectBasePayer();
-      setPayer(paymentClient.address);
-      const result = await paymentClient.fetch(endpoint, {
+      if (!dashboard.treasury) {
+        throw new Error("The service treasury is not available. Refresh and try again.");
+      }
+      const wallet = await connectBasePayer();
+      setPayer(wallet.address);
+      setPhase("paying");
+      const paidFetch = paymentFetch(wallet.address, wallet.ethereum, service, dashboard.treasury);
+      const result = await paidFetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body)
       });
       const payload = await responsePayload(result);
       if (!result.ok) {
-        const message = typeof payload.message === "string"
-          ? payload.message
-          : `Request failed with HTTP ${result.status}`;
-        throw new Error(message);
+        setError(responseError(result, payload));
+        return;
       }
       setResponse(payload);
+      setPhase("complete");
       await refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed");
+      setError(readableError(caught));
     } finally {
       setLoading(false);
+      setPhase(current => current === "complete" ? current : "idle");
     }
   }
 
@@ -270,6 +390,14 @@ export function AlphaGateConsole() {
           <span className={`status-dot ${dashboard.genlayer.configured ? "live" : "local"}`}>
             {dashboard.genlayer.configured ? "GenLayer live" : "Local mode"}
           </span>
+          <button
+            className={`wallet-button ${payer ? "connected" : ""}`}
+            onClick={() => void connectWallet()}
+            disabled={phase === "connecting" || loading}
+          >
+            {phase === "connecting" ? <LoaderCircle size={16} className="spin" /> : <WalletCards size={16} />}
+            {payer ? shortHash(payer) : "Connect wallet"}
+          </button>
           <button className="icon-button" onClick={() => void refresh()} title="Refresh dashboard" aria-label="Refresh dashboard">
             <RefreshCw size={17} className={refreshing ? "spin" : ""} />
           </button>
@@ -314,19 +442,46 @@ export function AlphaGateConsole() {
               )}
 
               <button className="primary-button" onClick={() => void submit()} disabled={loading}>
-                {loading ? <Clock3 size={17} /> : <Send size={17} />}
-                {loading ? "Processing paid evidence..." : `Run ${service === "trade_guard" ? "TradeGuard" : "AlphaRouter"}`}
+                {loading ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}
+                {phase === "connecting"
+                  ? "Connecting wallet..."
+                  : phase === "paying"
+                    ? "Authorizing payment and analysis..."
+                    : `Run ${service === "trade_guard" ? "TradeGuard" : "AlphaRouter"}`}
               </button>
-              {payer && <div className="payer-line"><WalletCards size={15} /> Paying from <span className="mono">{shortHash(payer)}</span></div>}
-              {error && <div className="error-line"><TriangleAlert size={16} /> {error}</div>}
+              <div className="payment-assurance">
+                <LockKeyhole size={15} />
+                <span>Base USDC only</span>
+                <i />
+                <span>{service === "trade_guard" ? "0.10" : "0.25"} USDC maximum</span>
+                <i />
+                <span>AlphaGate treasury only</span>
+              </div>
+              {payer && <div className="payer-line"><WalletCards size={15} /> Connected <span className="mono">{shortHash(payer)}</span></div>}
+              {error && (
+                <div className="error-box" role="alert">
+                  <TriangleAlert size={18} />
+                  <div>
+                    <strong>{error.title}</strong>
+                    <span>{error.detail}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="response-panel">
               <div className="panel-title">
                 <span><Braces size={17} /> Agent response</span>
-                <span className="mono">{response ? "200 OK" : "Awaiting call"}</span>
+                {response ? (
+                  <div className="response-tabs">
+                    <button className={responseView === "summary" ? "active" : ""} onClick={() => setResponseView("summary")}>Summary</button>
+                    <button className={responseView === "json" ? "active" : ""} onClick={() => setResponseView("json")}>JSON</button>
+                  </div>
+                ) : <span className="mono">{loading ? "Processing" : "Awaiting call"}</span>}
               </div>
-              <pre>{response ? JSON.stringify(response, null, 2) : `{\n  "status": "ready",\n  "service": "${service}"\n}`}</pre>
+              {response && responseView === "summary"
+                ? <ResponseSummary payload={response} service={service} />
+                : <JsonResponse payload={response} service={service} />}
             </div>
           </div>
         </section>
@@ -397,6 +552,79 @@ export function AlphaGateConsole() {
       </section>
     </main>
   );
+}
+
+function JsonResponse({ payload, service }: { payload: Record<string, unknown> | null; service: Service }) {
+  const text = payload
+    ? JSON.stringify(payload, null, 2)
+    : `{\n  "status": "ready",\n  "service": "${service}"\n}`;
+
+  return (
+    <div className="json-wrap">
+      {payload && (
+        <button
+          className="copy-button"
+          onClick={() => void navigator.clipboard.writeText(text)}
+          title="Copy JSON"
+          aria-label="Copy JSON"
+        >
+          <Copy size={15} />
+        </button>
+      )}
+      <pre>{text}</pre>
+    </div>
+  );
+}
+
+function ResponseSummary({ payload, service }: { payload: Record<string, unknown>; service: Service }) {
+  const result = (payload.result ?? {}) as Record<string, unknown>;
+  const payment = (payload.payment_trace ?? {}) as Record<string, unknown>;
+  const genlayer = (payload.genlayer ?? {}) as Record<string, unknown>;
+  const reasons = Array.isArray(result.reasons) ? result.reasons.map(String) : [];
+  const verdict = resultLabel(service, result);
+  const provisional = genlayer.consensusStatus === "undetermined";
+  const tone = verdict === "BLOCK" || verdict === "WAIT"
+    ? "danger"
+    : verdict === "SIZE_DOWN"
+      ? "warning"
+      : "success";
+
+  return (
+    <div className="result-summary">
+      <div className={`verdict-block ${tone}`}>
+        <span>{service === "trade_guard" ? "Verdict" : "Action"}</span>
+        <strong>{verdict}</strong>
+        <small>{provisional ? "Provisional contract output" : "Completed and recorded"}</small>
+      </div>
+
+      <div className="result-stats">
+        {result.risk_score !== undefined && <ResultStat label="Risk score" value={String(result.risk_score)} />}
+        {result.confidence !== undefined && <ResultStat label="Confidence" value={String(result.confidence)} />}
+        {result.max_position_usd !== undefined && <ResultStat label="Max position" value={`$${result.max_position_usd}`} />}
+        <ResultStat label="Charged" value={formatUsdc(String(payment.grossUnits ?? "0"))} />
+        <ResultStat label="Evidence cost" value={formatUsdc(String(payment.upstreamCostUnits ?? "0"))} />
+        <ResultStat label="Consensus" value={String(genlayer.consensusStatus ?? "not used")} />
+      </div>
+
+      {reasons.length > 0 && (
+        <div className="reason-list">
+          <span>Decision factors</span>
+          {reasons.map(reason => <div key={reason}><CheckCircle2 size={14} />{reason}</div>)}
+        </div>
+      )}
+
+      <div className="proof-strip">
+        <span><LockKeyhole size={14} /> Request</span>
+        <code>{shortHash(String(payload.request_id ?? ""))}</code>
+        <span><DatabaseZap size={14} /> Evidence</span>
+        <code>{shortHash(String(genlayer.evidenceHash ?? ""))}</code>
+      </div>
+    </div>
+  );
+}
+
+function ResultStat({ label, value }: { label: string; value: string }) {
+  return <div><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function Metric({ icon, label, value, detail, tone }: { icon: React.ReactNode; label: string; value: string; detail?: string; tone: string }) {

@@ -27,6 +27,7 @@ const sharedOutputExample = {
 };
 
 const tradeGuardDiscovery = declareDiscoveryExtension({
+  method: "POST",
   bodyType: "json",
   input: {
     asset: { type: "pair", value: "BTC-USDT" },
@@ -53,9 +54,10 @@ const tradeGuardDiscovery = declareDiscoveryExtension({
     example: sharedOutputExample,
     schema: { type: "object" }
   }
-});
+} as Parameters<typeof declareDiscoveryExtension>[0] & { method: "POST" });
 
 const alphaRouterDiscovery = declareDiscoveryExtension({
+  method: "POST",
   bodyType: "json",
   input: {
     asset: { type: "pair", value: "ETH-USDT" },
@@ -88,7 +90,12 @@ const alphaRouterDiscovery = declareDiscoveryExtension({
     example: sharedOutputExample,
     schema: { type: "object" }
   }
-});
+} as Parameters<typeof declareDiscoveryExtension>[0] & { method: "POST" });
+
+export const discoveryExtensions = {
+  trade_guard: tradeGuardDiscovery,
+  alpha_router: alphaRouterDiscovery
+} as const;
 
 const configs: Record<"trade_guard" | "alpha_router", RouteConfig> = {
   trade_guard: {
