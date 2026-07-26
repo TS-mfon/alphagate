@@ -20,22 +20,23 @@ Status checked on July 26, 2026.
 | Health endpoint | `https://alphagate-gen.vercel.app/api/health` | Live |
 | TradeGuard | `https://alphagate-gen.vercel.app/api/v1/trade-guard` | Live, x402 protected |
 | AlphaRouter | `https://alphagate-gen.vercel.app/api/v1/alpha-router` | Live, x402 protected |
-| OKX.AI identity | `#7525` | Listing under review, not listed yet |
+| OKX.AI identity | `#7525` | Resubmitted, under review |
 | GenLayer network | StudioNet | Live, gasless |
 | GenLayer contract | `0x94706ED905d3A701C448E8B393853787c7D81CA9` | Deployed |
 | GenLayer operator | `0x9C8F3AA1CB8EC981713cd2264a19dcA609Da5699` | Dedicated backend signer |
-| Base USDC treasury | `0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D` | Receives revenue and pays upstreams |
+| Treasury EOA | `0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D` | Receives X Layer USDT0 and pays upstreams from its Base USDC float |
 | Persistence | GenLayer | No database |
 
-The OKX.AI identity is registered and submitted, but OKX has not approved it for
-public listing yet. The current approval label is `Listing under review`, and
-the listing status is `not listed`.
+The OKX.AI identity is registered but not publicly listed. OKX rejected the
+previous Base challenge and requested the CAIP-2 network `eip155:196`. The live
+services now expose X Layer USDT0 challenges and identity `#7525` was resubmitted
+successfully on July 26, 2026.
 
 ## Services
 
 ### TradeGuard
 
-TradeGuard is a pre-trade safety gate. It costs `0.10 USDC` per request and
+TradeGuard is a pre-trade safety gate. It costs `0.10 USDT0` per request and
 returns one of:
 
 - `ALLOW`: the supplied evidence does not trigger a configured hard block.
@@ -49,7 +50,7 @@ confirmation.
 
 ### AlphaRouter
 
-AlphaRouter costs `0.25 USDC` per request and returns one of:
+AlphaRouter costs `0.25 USDT0` per request and returns one of:
 
 - `LONG`
 - `SHORT`
@@ -66,9 +67,9 @@ Caller
   |
   | POST request
   v
-AlphaGate x402 resource server on Base
+AlphaGate x402 resource server on X Layer
   |
-  | 402 challenge -> caller signs USDC authorization -> paid replay
+  | 402 challenge -> caller signs USDT0 authorization -> paid replay
   v
 Request validation and deterministic safety gates
   |
@@ -91,8 +92,8 @@ Verdict + payment trace + GenLayer status
 
 The browser or calling agent owns:
 
-- Its own Base wallet.
-- The incoming `0.10 USDC` or `0.25 USDC` payment.
+- Its own X Layer wallet.
+- The incoming `0.10 USDT0` or `0.25 USDT0` payment.
 - Request construction and idempotency keys.
 - The decision to act on or ignore the returned analysis.
 
@@ -144,13 +145,13 @@ AlphaGate uses separate wallets for separate responsibilities.
 
 ### Caller Wallet
 
-The caller wallet pays AlphaGate on Base using USDC. In the web console,
-AlphaGate requests an injected EVM wallet, switches it to Base, asks it to sign
+The caller wallet pays AlphaGate on X Layer using USDT0. In the web console,
+AlphaGate requests an injected EVM wallet, switches it to X Layer, asks it to sign
 the x402 typed-data authorization, and replays the request automatically.
 
 The caller wallet is never stored by AlphaGate.
 
-### Base Treasury
+### Treasury EOA
 
 Address:
 
@@ -158,12 +159,17 @@ Address:
 0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D
 ```
 
-Fund this address with native Base USDC. It has two roles:
+The same EOA is used on two networks:
 
-1. Receive AlphaGate service revenue.
-2. Pay paid upstream x402 providers.
+1. On X Layer it receives incoming USDT0 service revenue.
+2. On Base it holds USDC used to pay paid upstream x402 providers.
 
-The current upstream flow uses EIP-3009 USDC authorizations, so the treasury does
+Incoming revenue is not automatically bridged to Base. Production therefore
+requires a sufficient Base USDC operating float even when the X Layer side has
+received USDT0 revenue. Rebalancing between networks is an explicit treasury
+operation.
+
+The upstream flow uses EIP-3009 USDC authorizations, so the treasury does
 not normally broadcast the settlement transaction and does not require Base ETH
 for standard exact-scheme payments. Keeping a small amount of Base ETH can still
 be useful for future integrations that require approvals or direct transactions.
@@ -194,12 +200,12 @@ Never reuse the GenLayer operator as the Base treasury.
 
 ## Incoming x402 Flow
 
-Both paid routes use x402 v2 on Base:
+Both paid routes use x402 v2 on X Layer:
 
 ```text
-Network: eip155:8453
-Asset:   USDC
-Token:   0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+Network: eip155:196
+Asset:   USDT0
+Token:   0x779ded0c9e1022225f8e0630b35a9b54be713736
 Scheme:  exact
 ```
 
@@ -208,9 +214,9 @@ An unpaid request receives HTTP `402` and a base64-encoded
 
 - Resource URL.
 - Service description.
-- Exact atomic USDC amount.
-- Base network identifier.
-- USDC token address.
+- Exact atomic USDT0 amount.
+- X Layer CAIP-2 network identifier.
+- USDT0 token address.
 - Treasury recipient.
 - Payment timeout.
 - Bazaar input and output metadata.
@@ -233,7 +239,7 @@ providers.
 When the user presses a service button:
 
 1. The browser requests wallet access.
-2. The wallet switches to Base.
+2. The wallet switches to X Layer.
 3. The first API call receives the x402 challenge.
 4. The x402 client constructs the typed-data payment authorization.
 5. The wallet asks the user to sign.
@@ -515,8 +521,9 @@ Expected production response:
   "x402": true,
   "live_upstreams": true,
   "treasury": {
-    "network": "eip155:8453",
-    "asset": "USDC",
+    "network": "eip155:196",
+    "asset": "USDT0",
+    "assetAddress": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
     "address": "0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D"
   },
   "genlayer": {
@@ -529,7 +536,7 @@ Expected production response:
 }
 ```
 
-Health proves that configuration is present. It does not spend USDC and does not
+Health proves that configuration is present. It does not spend USDT0 or USDC and does not
 prove a provider has settled a paid call at that exact moment.
 
 ### Unpaid Challenge Check
@@ -555,8 +562,8 @@ Confirm the response contains:
 - HTTP `402`.
 - `PAYMENT-REQUIRED`.
 - `x402Version: 2` after decoding.
-- `network: eip155:8453`.
-- The Base USDC contract.
+- `network: eip155:196`.
+- The X Layer USDT0 contract.
 - The correct treasury recipient.
 - Bazaar input and output metadata.
 
@@ -570,7 +577,7 @@ Copy `.env.example` to `.env.local` for development.
 | --- | --- | --- |
 | `NEXT_PUBLIC_APP_URL` | Yes | Canonical public application URL |
 | `X402_ENABLED` | Yes | Enables incoming payment protection |
-| `X402_PAY_TO` | Yes | Base treasury recipient |
+| `X402_PAY_TO` | Yes | X Layer USDT0 recipient |
 | `X402_FACILITATOR_URL` | Yes | Incoming x402 facilitator |
 
 ### Upstream Payments
@@ -802,8 +809,8 @@ the listing.
 - [x] No database dependency.
 - [x] Production Vercel deployment is live.
 - [x] Health endpoint returns the active treasury, contract, and operator.
-- [x] TradeGuard returns a valid Base USDC x402 v2 challenge.
-- [x] AlphaRouter returns a valid Base USDC x402 v2 challenge.
+- [x] TradeGuard returns a valid X Layer USDT0 x402 v2 challenge.
+- [x] AlphaRouter returns a valid X Layer USDT0 x402 v2 challenge.
 - [x] Bazaar metadata is present in both challenges.
 - [x] Dedicated GenLayer operator created.
 - [x] Contract redeployed under the dedicated operator.
@@ -813,6 +820,7 @@ the listing.
 - [x] Application tests, lint, typecheck, and production build pass.
 - [x] Execute and record real paid upstream requests from the treasury.
 - [x] Execute a paid production TradeGuard request and return its result.
+- [x] Verify both deployed unpaid challenges expose `eip155:196` and USDT0.
 - [ ] Execute one paid production request for each AlphaGate service.
 - [ ] Receive OKX approval and confirm `#7525` becomes listed.
 
@@ -822,7 +830,8 @@ and successful paid responses have been observed.
 
 ### Verified Production Settlement
 
-Verified on July 26, 2026:
+Verified on July 26, 2026, before the incoming payment network migrated from
+Base USDC to X Layer USDT0:
 
 | Step | Result |
 | --- | --- |
@@ -842,14 +851,14 @@ verdict, evidence, payment trace, and GenLayer proof to the caller.
 ### The web console says an EVM wallet is required
 
 Install or enable an injected EVM wallet, unlock it, and retry. The wallet paying
-AlphaGate must hold Base USDC.
+AlphaGate must hold X Layer USDT0.
 
 ### The wallet opens but payment fails
 
 Check:
 
-- The wallet is on Base.
-- It holds enough native Base USDC.
+- The wallet is on X Layer.
+- It holds enough X Layer USDT0.
 - The user approved the typed-data signature.
 - The x402 authorization did not expire.
 - The facilitator is reachable.

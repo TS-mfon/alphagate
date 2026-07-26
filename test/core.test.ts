@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
+import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { deterministicTradeGuard } from "../src/lib/decision";
 import { GENLAYER_WAIT_POLICY } from "../src/lib/genlayer";
 import { canonicalJson, requestId, sha256 } from "../src/lib/hash";
@@ -12,7 +13,7 @@ import {
 import { formatUsdc, parseUsdc, retainedUnits } from "../src/lib/money";
 import { alphaRouterSchema, tradeGuardSchema, type TradeGuardInput } from "../src/lib/schemas";
 import { approvedPaymentRequirements } from "../src/lib/upstreamPolicy";
-import { discoveryExtensions } from "../src/lib/x402";
+import { discoveryExtensions, X_LAYER_NETWORK, X_LAYER_USDT0 } from "../src/lib/x402";
 import type { EvidenceItem, StoredRequest } from "../src/lib/types";
 
 const pairInput: TradeGuardInput = {
@@ -145,6 +146,19 @@ describe("x402 discovery metadata", () => {
 
     assert.equal(method(discoveryExtensions.trade_guard), "POST");
     assert.equal(method(discoveryExtensions.alpha_router), "POST");
+  });
+
+  it("prices incoming services in X Layer USDT0", async () => {
+    const scheme = new ExactEvmScheme();
+    const tradeGuardPrice = await scheme.parsePrice("$0.10", X_LAYER_NETWORK);
+    const alphaRouterPrice = await scheme.parsePrice("$0.25", X_LAYER_NETWORK);
+
+    assert.equal(tradeGuardPrice.amount, "100000");
+    assert.equal(tradeGuardPrice.asset, X_LAYER_USDT0);
+    assert.equal(tradeGuardPrice.extra?.version, "1");
+    assert.equal(alphaRouterPrice.amount, "250000");
+    assert.equal(alphaRouterPrice.asset, X_LAYER_USDT0);
+    assert.equal(alphaRouterPrice.extra?.version, "1");
   });
 });
 

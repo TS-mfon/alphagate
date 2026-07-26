@@ -97,7 +97,7 @@ interface BrowserEthereum {
   request(args: { method: string; params?: unknown[] }): Promise<unknown>;
 }
 
-const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+const X_LAYER_USDT0 = "0x779ded0c9e1022225f8e0630b35a9b54be713736";
 const SERVICE_PRICES: Record<Service, string> = {
   trade_guard: "100000",
   alpha_router: "250000"
@@ -111,7 +111,7 @@ function jsonTypedData(value: unknown) {
   return JSON.stringify(value, (_, item) => typeof item === "bigint" ? item.toString() : item);
 }
 
-async function connectBasePayer() {
+async function connectXLayerPayer() {
   const ethereum = browserEthereum();
   if (!ethereum) {
     throw new Error("wallet_missing");
@@ -124,7 +124,7 @@ async function connectBasePayer() {
   try {
     await ethereum.request({
       method: "wallet_switchEthereumChain",
-      params: [{ chainId: "0x2105" }]
+      params: [{ chainId: "0xc4" }]
     });
   } catch (error) {
     const code = (error as { code?: number }).code;
@@ -132,11 +132,11 @@ async function connectBasePayer() {
     await ethereum.request({
       method: "wallet_addEthereumChain",
       params: [{
-        chainId: "0x2105",
-        chainName: "Base",
-        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-        rpcUrls: ["https://mainnet.base.org"],
-        blockExplorerUrls: ["https://basescan.org"]
+        chainId: "0xc4",
+        chainName: "X Layer Mainnet",
+        nativeCurrency: { name: "OKB", symbol: "OKB", decimals: 18 },
+        rpcUrls: ["https://xlayerrpc.okx.com"],
+        blockExplorerUrls: ["https://www.oklink.com/xlayer"]
       }]
     });
   }
@@ -167,13 +167,13 @@ function paymentFetch(
 
   return wrapFetchWithPaymentFromConfig(fetch, {
     schemes: [{
-      network: "eip155:8453",
+      network: "eip155:196",
       client: new ExactEvmScheme(signer)
     }],
     policies: [(_version, requirements) => requirements.filter(requirement =>
       requirement.scheme === "exact"
-      && requirement.network === "eip155:8453"
-      && requirement.asset.toLowerCase() === BASE_USDC.toLowerCase()
+      && requirement.network === "eip155:196"
+      && requirement.asset.toLowerCase() === X_LAYER_USDT0.toLowerCase()
       && requirement.payTo.toLowerCase() === treasury.toLowerCase()
       && requirement.amount === SERVICE_PRICES[service]
       && (
@@ -201,7 +201,7 @@ function readableError(caught: unknown): UiError {
   if (message === "wallet_missing") {
     return {
       title: "Wallet not found",
-      detail: "Install or enable an EVM wallet, then reconnect on Base.",
+      detail: "Install or enable an EVM wallet, then reconnect on X Layer.",
       retryable: true
     };
   }
@@ -214,8 +214,8 @@ function readableError(caught: unknown): UiError {
   }
   if (/insufficient|balance/i.test(message)) {
     return {
-      title: "Insufficient USDC",
-      detail: "The connected wallet needs enough Base USDC for this service.",
+      title: "Insufficient USDT0",
+      detail: "The connected wallet needs enough X Layer USDT0 for this service.",
       retryable: true
     };
   }
@@ -311,7 +311,7 @@ export function AlphaGateConsole() {
     setError(null);
     setPhase("connecting");
     try {
-      const wallet = await connectBasePayer();
+      const wallet = await connectXLayerPayer();
       setPayer(wallet.address);
       return wallet;
     } catch (caught) {
@@ -351,7 +351,7 @@ export function AlphaGateConsole() {
       if (!dashboard.treasury) {
         throw new Error("The service treasury is not available. Refresh and try again.");
       }
-      const wallet = await connectBasePayer();
+      const wallet = await connectXLayerPayer();
       setPayer(wallet.address);
       setPhase("paying");
       const paidFetch = paymentFetch(wallet.address, wallet.ethereum, service, dashboard.treasury);
@@ -432,7 +432,7 @@ export function AlphaGateConsole() {
             <div className="form-panel">
               <div className="price-row">
                 <span>{service === "trade_guard" ? "Pre-trade risk verdict" : "Consensus-backed trade plan"}</span>
-                <strong>{service === "trade_guard" ? "0.10" : "0.25"} USDC</strong>
+                <strong>{service === "trade_guard" ? "0.10" : "0.25"} USDT0</strong>
               </div>
 
               {service === "trade_guard" ? (
@@ -451,9 +451,9 @@ export function AlphaGateConsole() {
               </button>
               <div className="payment-assurance">
                 <LockKeyhole size={15} />
-                <span>Base USDC only</span>
+                <span>X Layer USDT0 only</span>
                 <i />
-                <span>{service === "trade_guard" ? "0.10" : "0.25"} USDC maximum</span>
+                <span>{service === "trade_guard" ? "0.10" : "0.25"} USDT0 maximum</span>
                 <i />
                 <span>AlphaGate treasury only</span>
               </div>

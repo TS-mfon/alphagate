@@ -17,8 +17,8 @@ export interface EvidenceItem {
 }
 
 export interface PaymentTrace {
-  network: "eip155:8453";
-  asset: "USDC";
+  network: "eip155:196";
+  asset: "USDT0";
   grossUnits: string;
   upstreamCostUnits: string;
   retainedUnits: string;

@@ -1,13 +1,16 @@
-import { HTTPFacilitatorClient, x402ResourceServer } from "@x402/core/server";
-import { ExactEvmScheme } from "@x402/evm/exact/server";
+import { HTTPFacilitatorClient, x402ResourceServer } from "@okxweb3/x402-core/server";
+import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
-import { withX402, type RouteConfig } from "@x402/next";
+import { withX402, type RouteConfig } from "@okxweb3/x402-next";
 import type { NextRequest, NextResponse } from "next/server";
 import { env } from "./env";
 
 const facilitator = new HTTPFacilitatorClient({ url: env.facilitatorUrl });
 const server = new x402ResourceServer(facilitator)
-  .register("eip155:8453", new ExactEvmScheme());
+  .register("eip155:196", new ExactEvmScheme());
+
+export const X_LAYER_NETWORK = "eip155:196" as const;
+export const X_LAYER_USDT0 = "0x779ded0c9e1022225f8e0630b35a9b54be713736" as const;
 
 const sharedOutputExample = {
   request_id: "0x...",
@@ -102,28 +105,24 @@ const configs: Record<"trade_guard" | "alpha_router", RouteConfig> = {
     accepts: {
       scheme: "exact",
       price: "$0.10",
-      network: "eip155:8453",
+      network: X_LAYER_NETWORK,
       payTo: env.x402PayTo,
       maxTimeoutSeconds: 180
     },
-    serviceName: "AlphaGate",
     description: "Pre-trade risk gate for liquid crypto pairs and Base ERC-20 tokens.",
     mimeType: "application/json",
-    tags: ["trading", "risk", "agents", "base", "genlayer"],
     extensions: tradeGuardDiscovery
   },
   alpha_router: {
     accepts: {
       scheme: "exact",
       price: "$0.25",
-      network: "eip155:8453",
+      network: X_LAYER_NETWORK,
       payTo: env.x402PayTo,
       maxTimeoutSeconds: 180
     },
-    serviceName: "AlphaGate",
     description: "Consensus-backed trade plan with entry, stop, targets, and risk-bounded position sizing.",
     mimeType: "application/json",
-    tags: ["trading", "signals", "technical-analysis", "agents", "genlayer"],
     extensions: alphaRouterDiscovery
   }
 };

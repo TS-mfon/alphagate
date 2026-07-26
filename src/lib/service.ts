@@ -21,8 +21,8 @@ function paymentTrace(service: ServiceKind, evidence: EvidenceItem[]): PaymentTr
   const gross = SERVICE_PRICES[service];
   const cost = totalCost(evidence);
   return {
-    network: "eip155:8453",
-    asset: "USDC",
+    network: "eip155:196",
+    asset: "USDT0",
     grossUnits: gross.toString(),
     upstreamCostUnits: cost.toString(),
     retainedUnits: retainedUnits(gross, cost).toString(),
@@ -58,8 +58,8 @@ function priorResponse(request: StoredRequest) {
       status: request.status,
       result: request.result,
       payment_trace: {
-        network: "eip155:8453",
-        asset: "USDC",
+        network: "eip155:196",
+        asset: "USDT0",
         grossUnits: request.grossUnits,
         upstreamCostUnits: request.upstreamCostUnits,
         retainedUnits: request.retainedUnits,
