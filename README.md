@@ -1,52 +1,262 @@
 # AlphaGate
 
-AlphaGate is a paid agent-to-agent trading intelligence service for the OKX.AI
-Genesis Hackathon. It sells risk decisions through x402, spends part of each
-payment on paid Bazaar evidence, and records the request lifecycle and accounting
-on GenLayer.
+AlphaGate is a paid trading-intelligence ASP built for the OKX.AI Genesis
+Hackathon. Autonomous agents and browser users can purchase pre-trade risk
+decisions and risk-bounded trade plans over x402. AlphaGate uses part of each
+payment to buy specialist market evidence from other x402 services, then records
+the request lifecycle, verdict, evidence hash, and revenue accounting on
+GenLayer.
 
-AlphaGate provides two services:
+AlphaGate is decision-support infrastructure. It does not custody user funds,
+submit swaps, place orders, or claim that any trade is guaranteed.
 
-- `TradeGuard` costs `0.10 USDC` and returns `ALLOW`, `BLOCK`, or `SIZE_DOWN`.
-- `AlphaRouter` costs `0.25 USDC` and returns `LONG`, `SHORT`, or `WAIT` with
-  entry, stop, targets, sizing, confidence, and invalidation.
+## Production Status
 
-AlphaGate provides decision support only. It never signs or executes a trade.
+Status checked on July 26, 2026.
 
-## Live Deployment
+| Resource | Value | Status |
+| --- | --- | --- |
+| Web console | `https://alphagate-rho.vercel.app` | Live |
+| Health endpoint | `https://alphagate-rho.vercel.app/api/health` | Live |
+| TradeGuard | `https://alphagate-rho.vercel.app/api/v1/trade-guard` | Live, x402 protected |
+| AlphaRouter | `https://alphagate-rho.vercel.app/api/v1/alpha-router` | Live, x402 protected |
+| OKX.AI identity | `#7525` | Listing under review, not listed yet |
+| GenLayer network | StudioNet | Live, gasless |
+| GenLayer contract | `0x94706ED905d3A701C448E8B393853787c7D81CA9` | Deployed |
+| GenLayer operator | `0x9C8F3AA1CB8EC981713cd2264a19dcA609Da5699` | Dedicated backend signer |
+| Base USDC treasury | `0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D` | Receives revenue and pays upstreams |
+| Persistence | GenLayer | No database |
 
-- Dashboard: `https://alphagate-rho.vercel.app`
-- TradeGuard: `https://alphagate-rho.vercel.app/api/v1/trade-guard`
-- AlphaRouter: `https://alphagate-rho.vercel.app/api/v1/alpha-router`
-- GenLayer contract: `0xAAe4E58DB3E982531559935c22F4A28Fe89Fd521`
-- OKX.AI ASP identity: `#7525` (submitted for listing review)
-
-## Architecture
-
-```text
-OKX.AI caller
-  -> AlphaGate x402 endpoint on Base
-  -> deterministic risk gates
-  -> paid x402 Bazaar evidence from the AlphaGate treasury
-  -> GenLayer consensus when judgment is required
-  -> response with evidence hash, payment trace, and decision
-```
-
-There is no database. In production, GenLayer stores request state, results,
-evidence hashes, gross revenue, upstream cost, and retained revenue. Process
-memory is used only for active-request locks. Local fixture mode includes a
-memory-only fallback so the product can be demonstrated without funded wallets;
-that state intentionally resets when the process restarts.
+The OKX.AI identity is registered and submitted, but OKX has not approved it for
+public listing yet. The current approval label is `Listing under review`, and
+the listing status is `not listed`.
 
 ## Services
 
 ### TradeGuard
 
+TradeGuard is a pre-trade safety gate. It costs `0.10 USDC` per request and
+returns one of:
+
+- `ALLOW`: the supplied evidence does not trigger a configured hard block.
+- `BLOCK`: the trade violates a safety constraint or the evidence indicates
+  unacceptable risk.
+- `SIZE_DOWN`: the trade may proceed only with a smaller maximum position.
+
+TradeGuard evaluates position size, maximum loss, token sellability, contract
+risk, liquidity, evidence freshness, conflicting signals, and paid technical
+confirmation.
+
+### AlphaRouter
+
+AlphaRouter costs `0.25 USDC` per request and returns one of:
+
+- `LONG`
+- `SHORT`
+- `WAIT`
+
+For actionable plans it can include an entry range, stop, targets, position
+size, risk/reward, confidence bucket, invalidation condition, and evidence-based
+reasons. It returns `WAIT` when the evidence cannot support a defensible plan.
+
+## Architecture
+
+```text
+Caller
+  |
+  | POST request
+  v
+AlphaGate x402 resource server on Base
+  |
+  | 402 challenge -> caller signs USDC authorization -> paid replay
+  v
+Request validation and deterministic safety gates
+  |
+  | AlphaGate treasury pays selected x402 providers
+  v
+Specialist market evidence
+  |
+  | evidence is normalized and hashed
+  v
+GenLayer request claim
+  |
+  +--> deterministic finalization for hard safety outcomes
+  |
+  +--> comparative AI consensus for subjective decisions
+  v
+Verdict + payment trace + GenLayer status
+```
+
+### Ownership Boundaries
+
+The browser or calling agent owns:
+
+- Its own Base wallet.
+- The incoming `0.10 USDC` or `0.25 USDC` payment.
+- Request construction and idempotency keys.
+- The decision to act on or ignore the returned analysis.
+
+The AlphaGate backend owns:
+
+- Incoming x402 verification and settlement orchestration.
+- Provider selection and paid upstream requests.
+- Deterministic safety gates.
+- GenLayer transaction submission.
+- Response assembly and retryable error classification.
+
+The GenLayer contract owns:
+
+- Request claims and lifecycle state.
+- Final results and evidence hashes.
+- Gross revenue, upstream cost, and retained revenue accounting.
+- Comparative consensus for judgment-heavy requests.
+- The authoritative distinction between finalized and undetermined results.
+
+## No Database
+
+AlphaGate intentionally does not use PostgreSQL, SQLite, Redis, MongoDB, or any
+other database.
+
+In production, GenLayer stores:
+
+- Request ID.
+- Service name.
+- Claim, completion, or failure status.
+- Input hash.
+- Evidence hash.
+- Gross payment units.
+- Upstream cost units.
+- Retained units.
+- Result JSON.
+- Error summary.
+- Creation and update timestamps.
+
+Process memory is limited to active-request locks and local development fallback
+state. Production request history and metrics do not depend on Vercel process
+memory.
+
+Local fixture mode uses an in-memory fallback when GenLayer is not configured.
+That local state is intentionally ephemeral and resets with the process.
+
+## Wallet Model
+
+AlphaGate uses separate wallets for separate responsibilities.
+
+### Caller Wallet
+
+The caller wallet pays AlphaGate on Base using USDC. In the web console,
+AlphaGate requests an injected EVM wallet, switches it to Base, asks it to sign
+the x402 typed-data authorization, and replays the request automatically.
+
+The caller wallet is never stored by AlphaGate.
+
+### Base Treasury
+
+Address:
+
+```text
+0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D
+```
+
+Fund this address with native Base USDC. It has two roles:
+
+1. Receive AlphaGate service revenue.
+2. Pay paid upstream x402 providers.
+
+The current upstream flow uses EIP-3009 USDC authorizations, so the treasury does
+not normally broadcast the settlement transaction and does not require Base ETH
+for standard exact-scheme payments. Keeping a small amount of Base ETH can still
+be useful for future integrations that require approvals or direct transactions.
+
+The treasury was bootstrapped with `0.05 USDC` in Base transaction:
+
+```text
+0xfe7e40b0389662388e37d9d057e27578556ec8dec86c46b5e96cc139f1c875e5
+```
+
+### GenLayer Operator
+
+Address:
+
+```text
+0x9C8F3AA1CB8EC981713cd2264a19dcA609Da5699
+```
+
+This is a dedicated backend signer for all AlphaGate GenLayer StudioNet
+transactions. StudioNet is gasless, so it does not require GEN funding.
+
+The private key is stored outside the repository and is configured as the
+production `GENLAYER_PRIVATE_KEY` secret. The contract operator is immutable in
+the current contract version; rotating the signer requires deploying a new
+contract and updating `GENLAYER_CONTRACT_ADDRESS`.
+
+Never reuse the GenLayer operator as the Base treasury.
+
+## Incoming x402 Flow
+
+Both paid routes use x402 v2 on Base:
+
+```text
+Network: eip155:8453
+Asset:   USDC
+Token:   0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+Scheme:  exact
+```
+
+An unpaid request receives HTTP `402` and a base64-encoded
+`PAYMENT-REQUIRED` response header. The challenge declares:
+
+- Resource URL.
+- Service description.
+- Exact atomic USDC amount.
+- Base network identifier.
+- USDC token address.
+- Treasury recipient.
+- Payment timeout.
+- Bazaar input and output metadata.
+
+After the caller signs the payment authorization, the request is replayed with a
+`PAYMENT-SIGNATURE` header. The facilitator verifies and settles the payment
+before AlphaGate executes the service handler.
+
+The configured facilitator is:
+
+```text
+https://facilitator.payai.network
+```
+
+## Browser Payment Flow
+
+The production console supports injected EVM wallets such as MetaMask-compatible
+providers.
+
+When the user presses a service button:
+
+1. The browser requests wallet access.
+2. The wallet switches to Base.
+3. The first API call receives the x402 challenge.
+4. The x402 client constructs the typed-data payment authorization.
+5. The wallet asks the user to sign.
+6. The client replays the request with the payment signature.
+7. AlphaGate runs paid evidence collection and GenLayer finalization.
+
+If no injected wallet is available, the console returns a specific wallet error
+instead of a generic `Request failed` message.
+
+The Base treasury private key is never bundled into browser JavaScript.
+
+## Agent API
+
+### TradeGuard Request
+
 `POST /api/v1/trade-guard`
 
 ```json
 {
-  "asset": { "type": "pair", "value": "BTC-USDT" },
+  "asset": {
+    "type": "pair",
+    "value": "BTC-USDT"
+  },
   "side": "buy",
   "position_usd": "500",
   "timeframe": "4h",
@@ -56,16 +266,28 @@ that state intentionally resets when the process restarts.
 }
 ```
 
-Hard safety failures are deterministic. Borderline evidence is sent to GenLayer
-for comparative consensus.
+Required fields:
 
-### AlphaRouter
+| Field | Type | Notes |
+| --- | --- | --- |
+| `asset.type` | string | `pair` or `base_token` |
+| `asset.value` | string | Pair symbol or Base ERC-20 contract address |
+| `side` | string | `buy` or `sell` |
+| `position_usd` | decimal string | Proposed position size |
+| `timeframe` | string | `1h`, `4h`, or `1d` |
+| `max_loss_pct` | decimal string | Maximum acceptable percentage loss |
+| `idempotency_key` | string | Stable unique key for this logical request |
+
+### AlphaRouter Request
 
 `POST /api/v1/alpha-router`
 
 ```json
 {
-  "asset": { "type": "pair", "value": "ETH-USDT" },
+  "asset": {
+    "type": "pair",
+    "value": "ETH-USDT"
+  },
   "bias": "neutral",
   "timeframe": "4h",
   "risk_budget_usd": "25",
@@ -74,19 +296,161 @@ for comparative consensus.
 }
 ```
 
-Every AlphaRouter plan uses GenLayer consensus in production.
+Required fields:
 
-Both services also accept Base ERC-20 contract addresses:
+| Field | Type | Notes |
+| --- | --- | --- |
+| `asset.type` | string | `pair` or `base_token` |
+| `asset.value` | string | Pair symbol or Base ERC-20 contract address |
+| `bias` | string | `bullish`, `bearish`, or `neutral` |
+| `timeframe` | string | `1h`, `4h`, or `1d` |
+| `risk_budget_usd` | decimal string | Maximum loss budget |
+| `portfolio_value_usd` | decimal string | Portfolio value used for sizing |
+| `idempotency_key` | string | Stable unique key for this logical request |
+
+### Base Token Input
+
+Both services accept a Base ERC-20 contract:
 
 ```json
-{ "type": "base_token", "value": "0x0000000000000000000000000000000000000000" }
+{
+  "type": "base_token",
+  "value": "0x0000000000000000000000000000000000000000"
+}
 ```
+
+Use the actual token contract address. The zero address above only demonstrates
+the required JSON shape.
+
+### Response Shape
+
+Successful responses include:
+
+```json
+{
+  "request_id": "0x...",
+  "status": "completed",
+  "result": {},
+  "payment_trace": {
+    "grossUnits": "100000",
+    "upstreamCostUnits": "6000",
+    "retainedUnits": "94000",
+    "asset": "USDC"
+  },
+  "genlayer": {
+    "used": true,
+    "contract": "0x...",
+    "transactionHash": "0x...",
+    "consensusStatus": "finalized",
+    "authoritative": true,
+    "evidenceHash": "0x..."
+  }
+}
+```
+
+USDC accounting values use six-decimal atomic units. For example:
+
+- `100000` = `0.10 USDC`
+- `250000` = `0.25 USDC`
+- `5000` = `0.005 USDC`
+
+## Idempotency
+
+The request ID binds:
+
+- Service name.
+- Caller-provided idempotency key.
+- Incoming payment proof.
+- Canonical request input.
+
+This prevents accidental logical collisions while preserving repeatable request
+identity for the same paid invocation. Callers should not reuse an idempotency
+key for different trade intents.
+
+## Paid Upstream Routing
+
+AlphaGate composes specialist x402 providers instead of relying on a single
+general-purpose market API.
+
+| Provider | Purpose | Configured cost |
+| --- | --- | ---: |
+| n0brains | Directional and event signals | `0.005 USDC` |
+| TradeSnack | Multi-indicator technical analysis | `0.010 USDC` |
+| Otto AI | Crypto market news and sentiment | `0.001 USDC` |
+| Token Safety Check | Base token contract risk | `0.050 USDC` |
+| ApiToll | Base token price history | `0.001 USDC` |
+| Crypto OHLC Candles | Pair candle history | `0.005 USDC` |
+
+Provider endpoints are configured through `UPSTREAM_*_URL` environment
+variables. A provider can be replaced without changing the service contract or
+API schema.
+
+### TradeGuard Provider Selection
+
+For liquid pairs, the initial evidence set is:
+
+- n0brains signals.
+- Otto AI news.
+
+If deterministic rules cannot finalize the verdict, TradeSnack supplies
+technical confirmation before GenLayer analysis.
+
+For Base tokens, the evidence set is:
+
+- Token safety analysis.
+- Price history.
+
+### AlphaRouter Provider Selection
+
+For liquid pairs, AlphaRouter collects:
+
+- OHLC candles.
+- Technical analysis.
+- Directional signals.
+- Market news.
+
+For Base tokens, it collects token-safety and price-history evidence.
+
+## GenLayer Consensus
+
+Contract:
+
+```text
+0x94706ED905d3A701C448E8B393853787c7D81CA9
+```
+
+Deployment transaction:
+
+```text
+0x6ef018e442985eb0c26651a274aca05aecd417fececc486bd2957c0ee8de85f4
+```
+
+The contract uses the pinned GenVM runner:
+
+```text
+py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6
+```
+
+The request lifecycle is:
+
+1. `claim_request`
+2. `finalize_deterministic` or `analyze_request`
+3. `fail_request` when orchestration fails after a successful claim
+
+TradeGuard hard blocks and hard size constraints can finalize deterministically.
+Subjective TradeGuard cases and all production AlphaRouter plans use GenLayer
+comparative consensus.
+
+The prompt treats the user intent and paid evidence as untrusted data and tells
+validators to ignore instructions embedded in either payload.
 
 ## Undetermined Consensus
 
-If GenLayer reaches `UNDETERMINED`, AlphaGate attempts to decode the candidate
-decision returned by the contract leader receipt. A recoverable candidate is
-returned with:
+`UNDETERMINED` is not treated as an ordinary finalized result.
+
+When GenLayer returns `UNDETERMINED`, AlphaGate attempts to recover the
+contract-produced candidate verdict from the leader receipt or equivalence
+outputs. If a valid result is recoverable, AlphaGate returns it with:
 
 ```json
 {
@@ -97,19 +461,164 @@ returned with:
 }
 ```
 
-This lets an agent inspect the contract-produced verdict without mistaking it
-for finalized consensus. The on-chain request remains claimable for a later
-retry. If the receipt contains no valid contract decision, AlphaGate returns a
-retryable `genlayer_undetermined` error instead of fabricating a fallback.
+This preserves the useful contract output while making its status explicit. The
+caller must not treat it as finalized consensus.
+
+If no valid contract result is recoverable, AlphaGate returns a retryable
+`genlayer_undetermined` error and does not invent a verdict.
+
+## Error Model
+
+Application errors use a structured JSON shape:
+
+```json
+{
+  "error": "error_code",
+  "message": "Human-readable explanation",
+  "retryable": true,
+  "fields": {},
+  "request_id": "0x..."
+}
+```
+
+Important error classes:
+
+| Code | Meaning | Retry |
+| --- | --- | --- |
+| `treasury_unavailable` | Base treasury signer is missing | After configuration |
+| `upstream_failed` | Paid provider returned a failing HTTP response | Usually yes |
+| `upstream_malformed` | Provider returned non-JSON data | Yes or replace provider |
+| `genlayer_unavailable` | Required GenLayer configuration is missing | After configuration |
+| `genlayer_failed` | GenLayer execution failed | Inspect receipt first |
+| `genlayer_undetermined` | No finalized consensus and no recoverable verdict | Yes |
+| `request_missing` | The request claim was not found | Check contract and request ID |
+
+An unpaid API request is not an application failure. It correctly returns HTTP
+`402 Payment Required`.
+
+## Health and Readiness
+
+`GET /api/health`
+
+Expected production response:
+
+```json
+{
+  "status": "ok",
+  "service": "AlphaGate",
+  "x402": true,
+  "live_upstreams": true,
+  "treasury": {
+    "network": "eip155:8453",
+    "asset": "USDC",
+    "address": "0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D"
+  },
+  "genlayer": {
+    "configured": true,
+    "contract": "0x94706ED905d3A701C448E8B393853787c7D81CA9",
+    "operator": "0x9C8F3AA1CB8EC981713cd2264a19dcA609Da5699",
+    "mode": "consensus"
+  },
+  "persistence": "genlayer"
+}
+```
+
+Health proves that configuration is present. It does not spend USDC and does not
+prove a provider has settled a paid call at that exact moment.
+
+### Unpaid Challenge Check
+
+An unpaid service probe should return `402`, not `200`:
+
+```bash
+curl -i -X POST \
+  https://alphagate-rho.vercel.app/api/v1/trade-guard \
+  -H 'content-type: application/json' \
+  --data '{
+    "asset":{"type":"pair","value":"BTC-USDT"},
+    "side":"buy",
+    "position_usd":"500",
+    "timeframe":"4h",
+    "max_loss_pct":"2",
+    "idempotency_key":"readiness-check"
+  }'
+```
+
+Confirm the response contains:
+
+- HTTP `402`.
+- `PAYMENT-REQUIRED`.
+- `x402Version: 2` after decoding.
+- `network: eip155:8453`.
+- The Base USDC contract.
+- The correct treasury recipient.
+- Bazaar input and output metadata.
+
+## Environment Variables
+
+Copy `.env.example` to `.env.local` for development.
+
+### Application and Incoming Payments
+
+| Variable | Required in production | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_APP_URL` | Yes | Canonical public application URL |
+| `X402_ENABLED` | Yes | Enables incoming payment protection |
+| `X402_PAY_TO` | Yes | Base treasury recipient |
+| `X402_FACILITATOR_URL` | Yes | Incoming x402 facilitator |
+
+### Upstream Payments
+
+| Variable | Required in production | Purpose |
+| --- | --- | --- |
+| `TREASURY_PRIVATE_KEY` | Yes | Signs upstream USDC authorizations |
+| `LIVE_UPSTREAMS` | Yes | Uses real paid providers instead of fixtures |
+| `UPSTREAM_N0BRAINS_URL` | Optional | Overrides signals provider |
+| `UPSTREAM_TA_URL` | Optional | Overrides technical-analysis provider |
+| `UPSTREAM_NEWS_URL` | Optional | Overrides news provider |
+| `UPSTREAM_TOKEN_SAFETY_URL` | Optional | Overrides token-safety provider |
+| `UPSTREAM_PRICE_HISTORY_URL` | Optional | Overrides price-history provider |
+| `UPSTREAM_CANDLES_URL` | Optional | Overrides candles provider |
+
+### GenLayer
+
+| Variable | Required in production | Purpose |
+| --- | --- | --- |
+| `REQUIRE_GENLAYER` | Yes | Fails closed when GenLayer is unavailable |
+| `GENLAYER_PRIVATE_KEY` | Yes | Dedicated operator signer |
+| `GENLAYER_CONTRACT_ADDRESS` | Yes | Active AlphaGate contract |
+
+Example:
+
+```dotenv
+NEXT_PUBLIC_APP_URL=https://alphagate-rho.vercel.app
+
+X402_ENABLED=true
+X402_PAY_TO=0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D
+X402_FACILITATOR_URL=https://facilitator.payai.network
+
+TREASURY_PRIVATE_KEY=0xBaseTreasuryPrivateKey
+LIVE_UPSTREAMS=true
+
+REQUIRE_GENLAYER=true
+GENLAYER_PRIVATE_KEY=0xDedicatedGenLayerOperatorPrivateKey
+GENLAYER_CONTRACT_ADDRESS=0x94706ED905d3A701C448E8B393853787c7D81CA9
+```
+
+Never put private keys in variables prefixed with `NEXT_PUBLIC_`. Never commit
+`.env.local`, `.env.build`, key files, mnemonics, or Vercel tokens.
 
 ## Local Development
 
 Requirements:
 
-- Node.js 20 or newer
-- Python 3.12 or newer
-- A local virtual environment with `genvm-linter`, `genlayer-test`, and `pytest`
-  for contract validation
+- Node.js 20 or newer.
+- npm.
+- Python 3.12 or newer for GenLayer contract checks.
+- A Python virtual environment containing `genvm-linter`, `genlayer-test`, and
+  `pytest` when running contract tests.
+
+Install and start:
 
 ```bash
 cp .env.example .env.local
@@ -117,44 +626,48 @@ npm install
 npm run dev
 ```
 
-The default configuration uses local upstream fixtures, disables incoming x402,
-and uses process memory for demo state. Open `http://localhost:3000`.
+Open:
 
-Useful checks:
+```text
+http://localhost:3000
+```
+
+The default example configuration disables incoming x402, uses local evidence
+fixtures, and falls back to process memory. This makes local UI development
+possible without spending USDC.
+
+## Verification
+
+Run the application checks:
 
 ```bash
 npm test
-npm run test:genlayer
 npm run lint
 npm run typecheck
-npm run lint:genlayer
 npm run build
 ```
 
-## Production Configuration
+Run the GenLayer checks:
 
-Set these values in the deployment environment:
-
-```dotenv
-NEXT_PUBLIC_APP_URL=https://your-domain.example
-X402_ENABLED=true
-X402_PAY_TO=0xYourBaseTreasuryAddress
-X402_FACILITATOR_URL=https://facilitator.payai.network
-TREASURY_PRIVATE_KEY=0xBaseTreasurySignerPrivateKey
-LIVE_UPSTREAMS=true
-REQUIRE_GENLAYER=true
-GENLAYER_PRIVATE_KEY=0xGenLayerOperatorPrivateKey
-GENLAYER_CONTRACT_ADDRESS=0xDeployedContractAddress
+```bash
+npm run lint:genlayer
+npm run test:genlayer
 ```
 
-The Base treasury needs enough USDC for paid upstream requests. Keep the Base
-treasury signer separate from the GenLayer operator when operationally possible.
-Never expose either private key through a `NEXT_PUBLIC_` variable.
+Current application coverage includes:
 
-## Deploy GenLayer
+- Exact USDC parsing and formatting.
+- Revenue retention calculations.
+- Canonical hashing.
+- Payment-bound request IDs.
+- Deterministic TradeGuard outcomes.
+- Database-free local idempotency and metrics.
+- Recovery of contract verdicts from undetermined receipts.
+- Rejection of empty undetermined receipts.
 
-The deployment script uses the configured GenLayer private key as the contract
-operator and `X402_PAY_TO` as the recorded treasury:
+## Deploying the GenLayer Contract
+
+Set the dedicated operator key and treasury address:
 
 ```bash
 set -a
@@ -163,40 +676,198 @@ set +a
 npm run contract:deploy
 ```
 
-Copy the emitted contract address into `GENLAYER_CONTRACT_ADDRESS`, redeploy the
-web service, then verify:
+The deployment script:
+
+1. Reads the pinned contract source.
+2. Derives the operator from `GENLAYER_PRIVATE_KEY`.
+3. Records `X402_PAY_TO` as the treasury.
+4. Deploys to StudioNet.
+5. Waits for finalization.
+6. Prints the deployment transaction, contract, operator, and treasury.
+
+After deployment:
+
+1. Confirm the receipt execution succeeded.
+2. Confirm `genlayer code <address>` returns the expected source.
+3. Confirm `genlayer call <address> get_metrics` returns the expected operator
+   and treasury.
+4. Set `GENLAYER_CONTRACT_ADDRESS` in Vercel.
+5. Set the matching `GENLAYER_PRIVATE_KEY` secret.
+6. Redeploy the web application.
+
+## Vercel Deployment
+
+The repository is linked to the `alphagate` Vercel project.
+
+Deploy production:
 
 ```bash
-curl http://localhost:3000/api/health
+npx vercel --prod --yes
 ```
 
-Production health should report x402 enabled, live upstreams enabled, GenLayer
-configured, and persistence set to `genlayer`.
+After deployment:
 
-## Bazaar Sources
+```bash
+npx vercel inspect alphagate-rho.vercel.app
+curl -sS https://alphagate-rho.vercel.app/api/health
+```
 
-The current routing uses low-cost specialist services:
+Verify the deployment alias points to a `READY` production deployment before
+running paid tests.
 
-| Provider | Purpose | Cost per call |
-| --- | --- | ---: |
-| n0brains | Directional signals | `0.005 USDC` |
-| TradeSnack | Technical analysis | `0.010 USDC` |
-| Otto AI | Market news | `0.001 USDC` |
-| Token Safety Check | Base token contract risk | `0.050 USDC` |
-| ApiToll | Base token price history | `0.001 USDC` |
-| Crypto OHLC Candles | Pair candles | `0.005 USDC` |
+## Revenue Model
 
-Endpoint URLs are configurable through the `UPSTREAM_*_URL` environment
-variables, so a provider can be replaced without changing orchestration logic.
+The contract records:
+
+```text
+retained = max(gross payment - configured upstream cost, 0)
+```
+
+Example TradeGuard routing:
+
+```text
+Gross price:       0.100 USDC
+n0brains:          0.005 USDC
+Otto AI:           0.001 USDC
+Potential margin:  0.094 USDC
+```
+
+Additional technical confirmation increases upstream spend when the initial
+evidence is not sufficient for deterministic finalization.
+
+Configured provider cost is recorded for accounting. A production operator
+should periodically compare configured costs with provider challenges and update
+pricing when providers change their fees.
+
+## Security
+
+- Incoming payments are verified before service execution.
+- The Base treasury and GenLayer operator are separate keys.
+- Upstream payment policy locks every provider to Base USDC, an exact configured
+  amount, a known recipient, and EIP-3009. Price increases, recipient changes,
+  Permit2 challenges, and alternate networks fail closed.
+- Private keys are server-only secrets.
+- Request IDs bind the payment proof and canonical input.
+- Inputs and paid evidence are treated as untrusted data.
+- GenLayer result schemas restrict verdict and action enums.
+- Upstream requests use timeouts.
+- Upstream response bodies are capped at one megabyte.
+- Pair symbols and monetary inputs are schema-bounded before provider calls.
+- Provider failures are returned as structured retryable errors.
+- Retained revenue cannot become negative.
+- AlphaGate never signs or broadcasts user trades.
+
+Operational recommendations:
+
+- Keep treasury balance low and refill it as needed.
+- Use a dedicated treasury key with no unrelated assets.
+- Rotate providers when availability or pricing changes.
+- Rotate the GenLayer operator by redeploying the contract.
+- Review Vercel secret access.
+- Monitor provider settlement receipts and GenLayer failures.
+- Never log payment signatures or private keys.
 
 ## OKX.AI Listing
 
-List both paid endpoints as separate ASP services:
+Identity:
 
-- TradeGuard: `/api/v1/trade-guard`
-- AlphaRouter: `/api/v1/alpha-router`
+```text
+#7525
+```
 
-The x402 route configuration includes Bazaar input/output metadata for discovery.
-Before submission, run one paid request against each production endpoint and
-confirm the payment receipt, upstream receipts, GenLayer evidence hash, and
-request accounting are all present in the response.
+Current state on July 26, 2026:
+
+```text
+Approval: Listing under review
+Status:   not listed
+```
+
+The listing contains two API services:
+
+- TradeGuard at `/api/v1/trade-guard`.
+- AlphaRouter at `/api/v1/alpha-router`.
+
+Both endpoints expose Bazaar discovery metadata through their x402 challenges.
+The ASP cannot be considered publicly available inside OKX.AI until OKX approves
+the listing.
+
+## Production Readiness Checklist
+
+- [x] No database dependency.
+- [x] Production Vercel deployment is live.
+- [x] Health endpoint returns the active treasury, contract, and operator.
+- [x] TradeGuard returns a valid Base USDC x402 v2 challenge.
+- [x] AlphaRouter returns a valid Base USDC x402 v2 challenge.
+- [x] Bazaar metadata is present in both challenges.
+- [x] Dedicated GenLayer operator created.
+- [x] Contract redeployed under the dedicated operator.
+- [x] Contract source and metrics read verified.
+- [x] Browser x402 signing flow implemented.
+- [x] Structured undetermined-result handling implemented.
+- [x] Application tests, lint, typecheck, and production build pass.
+- [ ] Execute and record a real paid upstream request from the treasury.
+- [ ] Execute one paid production request for each AlphaGate service.
+- [ ] Receive OKX approval and confirm `#7525` becomes listed.
+
+The unchecked items are release verification steps, not hidden implementation
+work. Do not mark the service fully end-to-end verified until settlement receipts
+and successful paid responses have been observed.
+
+## Troubleshooting
+
+### The web console says an EVM wallet is required
+
+Install or enable an injected EVM wallet, unlock it, and retry. The wallet paying
+AlphaGate must hold Base USDC.
+
+### The wallet opens but payment fails
+
+Check:
+
+- The wallet is on Base.
+- It holds enough native Base USDC.
+- The user approved the typed-data signature.
+- The x402 authorization did not expire.
+- The facilitator is reachable.
+
+### AlphaGate returns `treasury_unavailable`
+
+Set `TREASURY_PRIVATE_KEY` in the server environment and redeploy. Never expose
+the key to browser code.
+
+### An upstream call fails
+
+Inspect the provider HTTP status and response snippet in the structured error.
+Then:
+
+1. Recheck the provider's unpaid x402 challenge.
+2. Confirm its price, token, network, and scheme.
+3. Confirm the treasury has enough Base USDC.
+4. Replace the provider URL if it is unavailable or incompatible.
+
+### GenLayer writes fail
+
+Check:
+
+1. `GENLAYER_PRIVATE_KEY` matches the contract operator.
+2. `GENLAYER_CONTRACT_ADDRESS` is the active deployment.
+3. The transaction receipt execution result, not only lifecycle status.
+4. The contract schema and deployed source.
+5. StudioNet rate limits.
+
+### GenLayer returns `UNDETERMINED`
+
+Inspect `genlayer.authoritative`. A recovered verdict with
+`authoritative: false` is provisional. Retry later if finalized consensus is
+required.
+
+### The dashboard has no previous requests
+
+Confirm the application is pointing at the expected GenLayer contract. A newly
+deployed contract starts with empty metrics and request history. Vercel process
+restarts do not erase on-chain records.
+
+## License
+
+This repository is currently private project code unless a separate license file
+states otherwise.

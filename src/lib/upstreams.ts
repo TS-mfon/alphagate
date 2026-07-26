@@ -4,15 +4,16 @@ import { privateKeyToAccount } from "viem/accounts";
 import { AlphaGateError } from "./errors";
 import { env } from "./env";
 import { PROVIDER_COSTS } from "./pricing";
+import { approvedPaymentRequirements, type ProviderName } from "./upstreamPolicy";
 import type { AlphaRouterInput, TradeGuardInput } from "./schemas";
 import type { EvidenceItem } from "./types";
 
-type ProviderName = keyof typeof PROVIDER_COSTS;
+const MAX_UPSTREAM_BYTES = 1_000_000;
+const paidFetches = new Map<ProviderName, typeof fetch>();
 
-let paidFetch: typeof fetch | undefined;
-
-function treasuryFetch() {
-  if (paidFetch) return paidFetch;
+function treasuryFetch(provider: ProviderName) {
+  const cached = paidFetches.get(provider);
+  if (cached) return cached;
   if (!env.treasuryPrivateKey) {
     throw new AlphaGateError(
       "treasury_unavailable",
@@ -23,12 +24,16 @@ function treasuryFetch() {
   }
 
   const account = privateKeyToAccount(env.treasuryPrivateKey);
-  paidFetch = wrapFetchWithPaymentFromConfig(fetch, {
+  const paidFetch = wrapFetchWithPaymentFromConfig(fetch, {
     schemes: [{
-      network: "eip155:*",
+      network: "eip155:8453",
       client: new ExactEvmScheme(account)
-    }]
+    }],
+    policies: [(_version, requirements) =>
+      approvedPaymentRequirements(provider, requirements)
+    ]
   });
+  paidFetches.set(provider, paidFetch);
   return paidFetch;
 }
 
@@ -42,12 +47,46 @@ function receiptFrom(response: Response) {
   }
 }
 
+async function limitedText(response: Response) {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+  if (declaredLength > MAX_UPSTREAM_BYTES) {
+    throw new AlphaGateError(
+      "upstream_too_large",
+      "The upstream response exceeded the one-megabyte limit",
+      502,
+      true
+    );
+  }
+  if (!response.body) return "";
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > MAX_UPSTREAM_BYTES) {
+      await reader.cancel();
+      throw new AlphaGateError(
+        "upstream_too_large",
+        "The upstream response exceeded the one-megabyte limit",
+        502,
+        true
+      );
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
 async function paidJson(
   provider: ProviderName,
   url: URL,
   init?: RequestInit
 ): Promise<EvidenceItem> {
-  const response = await treasuryFetch()(url, {
+  const response = await treasuryFetch(provider)(url, {
     ...init,
     signal: AbortSignal.timeout(45_000),
     headers: {
@@ -56,11 +95,14 @@ async function paidJson(
     }
   });
 
-  const text = await response.text();
+  const text = await limitedText(response);
   if (!response.ok) {
+    const paymentRejected = response.status === 402;
     throw new AlphaGateError(
-      "upstream_failed",
-      `${provider} returned HTTP ${response.status}`,
+      paymentRejected ? "upstream_payment_rejected" : "upstream_failed",
+      paymentRejected
+        ? `${provider} rejected the configured x402 payment policy or settlement`
+        : `${provider} returned HTTP ${response.status}`,
       502,
       true,
       { provider, response: text.slice(0, 500) }
@@ -83,7 +125,9 @@ async function paidJson(
   return {
     provider,
     kind: provider,
-    costUnits: PROVIDER_COSTS[provider].toString(),
+    costUnits: response.headers.has("PAYMENT-RESPONSE")
+      ? PROVIDER_COSTS[provider].toString()
+      : "0",
     observedAt: new Date().toISOString(),
     receipt: receiptFrom(response),
     data

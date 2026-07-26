@@ -9,7 +9,8 @@ import {
   setLocalRequest
 } from "../src/lib/localStore";
 import { formatUsdc, parseUsdc, retainedUnits } from "../src/lib/money";
-import type { TradeGuardInput } from "../src/lib/schemas";
+import { alphaRouterSchema, tradeGuardSchema, type TradeGuardInput } from "../src/lib/schemas";
+import { approvedPaymentRequirements } from "../src/lib/upstreamPolicy";
 import type { EvidenceItem, StoredRequest } from "../src/lib/types";
 
 const pairInput: TradeGuardInput = {
@@ -84,6 +85,54 @@ describe("canonical hashing", () => {
     assert.notEqual(first, requestId("alpha_router", "key-0001", "proof-a", pairInput));
     assert.notEqual(first, requestId("trade_guard", "key-0001", "proof-b", pairInput));
     assert.notEqual(first, requestId("trade_guard", "key-0002", "proof-a", pairInput));
+  });
+});
+
+describe("request validation", () => {
+  it("accepts supported pair symbols and bounded numeric values", () => {
+    assert.equal(tradeGuardSchema.parse(pairInput).asset.value, "BTC-USDT");
+  });
+
+  it("rejects malformed pairs and unbounded values", () => {
+    assert.throws(() => tradeGuardSchema.parse({
+      ...pairInput,
+      asset: { type: "pair", value: "BTC?redirect=https://example.com" }
+    }));
+    assert.throws(() => tradeGuardSchema.parse({
+      ...pairInput,
+      position_usd: "10000000.000001"
+    }));
+    assert.throws(() => alphaRouterSchema.parse({
+      asset: { type: "pair", value: "ETH-USDT" },
+      bias: "neutral",
+      timeframe: "4h",
+      risk_budget_usd: "0",
+      portfolio_value_usd: "2500",
+      idempotency_key: "router-test-0001"
+    }));
+  });
+});
+
+describe("upstream payment policy", () => {
+  const approved = {
+    scheme: "exact",
+    network: "eip155:8453",
+    amount: "5000",
+    asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    payTo: "0xc1793B8AA0D25193117EF025f145994e1c02011F",
+    extra: { name: "USD Coin", version: "2" }
+  };
+
+  it("accepts only the configured provider charge", () => {
+    assert.deepEqual(approvedPaymentRequirements("n0brains", [approved]), [approved]);
+  });
+
+  it("rejects overspend, recipient changes, and Permit2", () => {
+    assert.equal(approvedPaymentRequirements("n0brains", [
+      { ...approved, amount: "5000000" },
+      { ...approved, payTo: "0x0000000000000000000000000000000000000001" },
+      { ...approved, extra: { ...approved.extra, assetTransferMethod: "permit2" } }
+    ]).length, 0);
   });
 });
 
