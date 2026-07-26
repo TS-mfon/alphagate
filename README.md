@@ -225,11 +225,17 @@ After the caller signs the payment authorization, the request is replayed with a
 `PAYMENT-SIGNATURE` header. The facilitator verifies and settles the payment
 before AlphaGate executes the service handler.
 
-The configured facilitator is:
+Incoming verification and settlement use the official authenticated OKX
+facilitator through:
 
 ```text
-https://facilitator.payai.network
+@okxweb3/x402-core
+@okxweb3/x402-evm
+@okxweb3/x402-next
 ```
+
+The seller credentials are server-only Vercel secrets. They are never exposed
+to the browser, returned by an API route, or committed to the repository.
 
 ## Browser Payment Flow
 
@@ -526,6 +532,13 @@ Expected production response:
     "assetAddress": "0x779ded0c9e1022225f8e0630b35a9b54be713736",
     "address": "0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D"
   },
+  "paymentSdk": {
+    "provider": "OKX",
+    "corePackage": "@okxweb3/x402-core",
+    "evmPackage": "@okxweb3/x402-evm",
+    "nextPackage": "@okxweb3/x402-next",
+    "authenticatedFacilitator": true
+  },
   "genlayer": {
     "configured": true,
     "contract": "0x94706ED905d3A701C448E8B393853787c7D81CA9",
@@ -578,7 +591,10 @@ Copy `.env.example` to `.env.local` for development.
 | `NEXT_PUBLIC_APP_URL` | Yes | Canonical public application URL |
 | `X402_ENABLED` | Yes | Enables incoming payment protection |
 | `X402_PAY_TO` | Yes | X Layer USDT0 recipient |
-| `X402_FACILITATOR_URL` | Yes | Incoming x402 facilitator |
+| `OKX_API_KEY` | Yes | Official OKX facilitator authentication |
+| `OKX_SECRET_KEY` | Yes | Official OKX facilitator request signing |
+| `OKX_PASSPHRASE` | Yes | Official OKX facilitator authentication |
+| `OKX_BASE_URL` | Optional | OKX API origin; defaults to `https://www.okx.com` |
 
 ### Upstream Payments
 
@@ -608,7 +624,10 @@ NEXT_PUBLIC_APP_URL=https://alphagate-gen.vercel.app
 
 X402_ENABLED=true
 X402_PAY_TO=0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D
-X402_FACILITATOR_URL=https://facilitator.payai.network
+OKX_API_KEY=server-only
+OKX_SECRET_KEY=server-only
+OKX_PASSPHRASE=server-only
+OKX_BASE_URL=https://www.okx.com
 
 TREASURY_PRIVATE_KEY=0xBaseTreasuryPrivateKey
 LIVE_UPSTREAMS=true

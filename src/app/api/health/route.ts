@@ -15,6 +15,15 @@ export async function GET() {
       assetAddress: X_LAYER_USDT0,
       address: env.x402PayTo
     },
+    paymentSdk: {
+      provider: "OKX",
+      corePackage: "@okxweb3/x402-core",
+      evmPackage: "@okxweb3/x402-evm",
+      nextPackage: "@okxweb3/x402-next",
+      authenticatedFacilitator: Boolean(
+        env.okxApiKey && env.okxSecretKey && env.okxPassphrase
+      )
+    },
     genlayer: genlayerConfiguration(),
     persistence: "genlayer"
   });

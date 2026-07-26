@@ -1,11 +1,21 @@
-import { HTTPFacilitatorClient, x402ResourceServer } from "@okxweb3/x402-core/server";
+import { OKXFacilitatorClient } from "@okxweb3/x402-core";
+import { x402ResourceServer } from "@okxweb3/x402-core/server";
 import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { declareDiscoveryExtension } from "@x402/extensions/bazaar";
 import { withX402, type RouteConfig } from "@okxweb3/x402-next";
 import type { NextRequest, NextResponse } from "next/server";
 import { env } from "./env";
 
-const facilitator = new HTTPFacilitatorClient({ url: env.facilitatorUrl });
+const facilitator = env.okxApiKey && env.okxSecretKey && env.okxPassphrase
+  ? new OKXFacilitatorClient({
+      apiKey: env.okxApiKey,
+      secretKey: env.okxSecretKey,
+      passphrase: env.okxPassphrase,
+      baseUrl: env.okxBaseUrl,
+      syncSettle: true
+    })
+  : undefined;
+
 const server = new x402ResourceServer(facilitator)
   .register("eip155:196", new ExactEvmScheme());
 
@@ -132,5 +142,10 @@ export function protect(
   handler: (request: NextRequest) => Promise<NextResponse<any>>
 ) {
   if (!env.x402Enabled) return handler;
+  if (!facilitator) {
+    throw new Error(
+      "Official OKX Payment SDK credentials are required when X402_ENABLED is true"
+    );
+  }
   return withX402(handler, configs[service], server);
 }
