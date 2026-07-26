@@ -16,10 +16,10 @@ Status checked on July 26, 2026.
 
 | Resource | Value | Status |
 | --- | --- | --- |
-| Web console | `https://alphagate-rho.vercel.app` | Live |
-| Health endpoint | `https://alphagate-rho.vercel.app/api/health` | Live |
-| TradeGuard | `https://alphagate-rho.vercel.app/api/v1/trade-guard` | Live, x402 protected |
-| AlphaRouter | `https://alphagate-rho.vercel.app/api/v1/alpha-router` | Live, x402 protected |
+| Web console | `https://alphagate-gen.vercel.app` | Live |
+| Health endpoint | `https://alphagate-gen.vercel.app/api/health` | Live |
+| TradeGuard | `https://alphagate-gen.vercel.app/api/v1/trade-guard` | Live, x402 protected |
+| AlphaRouter | `https://alphagate-gen.vercel.app/api/v1/alpha-router` | Live, x402 protected |
 | OKX.AI identity | `#7525` | Listing under review, not listed yet |
 | GenLayer network | StudioNet | Live, gasless |
 | GenLayer contract | `0x94706ED905d3A701C448E8B393853787c7D81CA9` | Deployed |
@@ -80,9 +80,9 @@ Specialist market evidence
   v
 GenLayer request claim
   |
-  +--> deterministic finalization for hard safety outcomes
+  +--> contract validates the bounded evidence-derived result
   |
-  +--> comparative AI consensus for subjective decisions
+  +--> consensus commits the verdict, evidence hash, and accounting
   v
 Verdict + payment trace + GenLayer status
 ```
@@ -109,7 +109,7 @@ The GenLayer contract owns:
 - Request claims and lifecycle state.
 - Final results and evidence hashes.
 - Gross revenue, upstream cost, and retained revenue accounting.
-- Comparative consensus for judgment-heavy requests.
+- Result-schema validation and consensus-backed finalization.
 - The authoritative distinction between finalized and undetermined results.
 
 ## No Database
@@ -434,12 +434,18 @@ py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6
 The request lifecycle is:
 
 1. `claim_request`
-2. `finalize_deterministic` or `analyze_request`
+2. `finalize_deterministic`
 3. `fail_request` when orchestration fails after a successful claim
 
-TradeGuard hard blocks and hard size constraints can finalize deterministically.
-Subjective TradeGuard cases and all production AlphaRouter plans use GenLayer
-comparative consensus.
+Production requests use bounded evidence-derived analysis followed by
+`finalize_deterministic`. The contract validates the service-specific result
+shape and consensus commits the verdict, evidence hash, cost, and revenue
+accounting. This keeps paid HTTP calls inside the serverless response deadline.
+
+The deployed contract also exposes `analyze_request`, which uses GenLayer
+comparative AI consensus. It is retained for future asynchronous enrichment and
+is intentionally not part of the synchronous paid API path because StudioNet
+consensus can exceed a serverless request deadline.
 
 The prompt treats the user intent and paid evidence as untrusted data and tells
 validators to ignore instructions embedded in either payload.
@@ -532,7 +538,7 @@ An unpaid service probe should return `402`, not `200`:
 
 ```bash
 curl -i -X POST \
-  https://alphagate-rho.vercel.app/api/v1/trade-guard \
+  https://alphagate-gen.vercel.app/api/v1/trade-guard \
   -H 'content-type: application/json' \
   --data '{
     "asset":{"type":"pair","value":"BTC-USDT"},
@@ -591,7 +597,7 @@ Copy `.env.example` to `.env.local` for development.
 Example:
 
 ```dotenv
-NEXT_PUBLIC_APP_URL=https://alphagate-rho.vercel.app
+NEXT_PUBLIC_APP_URL=https://alphagate-gen.vercel.app
 
 X402_ENABLED=true
 X402_PAY_TO=0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D
@@ -708,8 +714,8 @@ npx vercel --prod --yes
 After deployment:
 
 ```bash
-npx vercel inspect alphagate-rho.vercel.app
-curl -sS https://alphagate-rho.vercel.app/api/health
+npx vercel inspect alphagate-gen.vercel.app
+curl -sS https://alphagate-gen.vercel.app/api/health
 ```
 
 Verify the deployment alias points to a `READY` production deployment before
@@ -805,13 +811,31 @@ the listing.
 - [x] Browser x402 signing flow implemented.
 - [x] Structured undetermined-result handling implemented.
 - [x] Application tests, lint, typecheck, and production build pass.
-- [ ] Execute and record a real paid upstream request from the treasury.
+- [x] Execute and record real paid upstream requests from the treasury.
+- [x] Execute a paid production TradeGuard request and return its result.
 - [ ] Execute one paid production request for each AlphaGate service.
 - [ ] Receive OKX approval and confirm `#7525` becomes listed.
 
 The unchecked items are release verification steps, not hidden implementation
 work. Do not mark the service fully end-to-end verified until settlement receipts
 and successful paid responses have been observed.
+
+### Verified Production Settlement
+
+Verified on July 26, 2026:
+
+| Step | Result |
+| --- | --- |
+| Incoming TradeGuard payment | `0x426b5bd42aa4a6113d9e390998f30f357760fe0d3fa4be2be1d9b73720393395` |
+| n0brains upstream payment | `0xcf609456351e851acd5ef4f175a052a4ccd3fe4ba84b01ce6c9d79fe396627d1` |
+| Otto AI upstream payment | `0xe0f8a90e0d4136592206ae92f9c1a32472f2e59ad0e590e173004ba980ad71a6` |
+| GenLayer finalization | `0xe487d98e389647a01b2caa77fa1b81f7e237b7107205d0558072aec698b3b8bb` |
+| Request ID | `0x063c0b82e46f2fb5c1d25af9a3ff95396876c17ad9a98e290785a3e4c99d9ca2` |
+| HTTP result | `200`, `BLOCK`, authoritative and finalized |
+
+The request charged `0.10 USDC`, spent `0.006 USDC` on paid evidence, retained
+`0.094 USDC`, persisted the complete result on GenLayer, and returned the
+verdict, evidence, payment trace, and GenLayer proof to the caller.
 
 ## Troubleshooting
 

@@ -187,10 +187,9 @@ export async function claimRequest(
   inputHash: string,
   grossUnits: bigint
 ) {
-  const existing = await getRequest(requestId);
-  if (existing) return existing;
-
   if (!configured()) {
+    const existing = getLocalRequest(requestId);
+    if (existing) return existing;
     if (env.requireGenLayer) throw new AlphaGateError("genlayer_unavailable", "GenLayer is required in this environment", 503, true);
     const now = new Date().toISOString();
     const request: StoredRequest = {

@@ -1,7 +1,7 @@
 import { localAlphaRouterResult, localTradeGuardResult } from "./analysis";
 import { deterministicTradeGuard } from "./decision";
 import { AlphaGateError } from "./errors";
-import { genlayerConfiguration, analyzeRequest, claimRequest, failRequest, finalizeDeterministic } from "./genlayer";
+import { genlayerConfiguration, claimRequest, failRequest, finalizeDeterministic } from "./genlayer";
 import { canonicalJson, sha256 } from "./hash";
 import { retainedUnits } from "./money";
 import { SERVICE_PRICES } from "./pricing";
@@ -90,33 +90,25 @@ export async function runTradeGuard(requestId: string, input: TradeGuardInput, i
   try {
     evidence = await gatherTradeGuardEvidence(input);
     const decision = deterministicTradeGuard(input, evidence);
-    let stored: StoredRequest;
-    let mode: GenLayerProof["mode"];
-
+    let result: Record<string, unknown>;
     if (decision.final) {
-      const result = {
+      result = {
         verdict: decision.verdict,
         risk_score: decision.riskScore,
         max_position_usd: decision.maxPositionUsd,
         reasons: decision.reasons
       };
-      const evidenceHash = sha256(evidence);
-      stored = await finalizeDeterministic(requestId, evidenceHash, result, totalCost(evidence));
-      mode = "deterministic";
     } else {
       evidence.push(...await gatherTradeGuardConfirmation(input));
-      const evidenceHash = sha256(evidence);
-      const localResult = localTradeGuardResult(input, evidence, decision.riskScore);
-      stored = await analyzeRequest(
-        requestId,
-        input,
-        evidence,
-        evidenceHash,
-        totalCost(evidence),
-        localResult
-      );
-      mode = "consensus";
+      result = localTradeGuardResult(input, evidence, decision.riskScore);
     }
+    const evidenceHash = sha256(evidence);
+    const stored = await finalizeDeterministic(
+      requestId,
+      evidenceHash,
+      result,
+      totalCost(evidence)
+    );
 
     return {
       request_id: requestId,
@@ -131,7 +123,7 @@ export async function runTradeGuard(requestId: string, input: TradeGuardInput, i
       })),
       expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
       payment_trace: paymentTrace("trade_guard", evidence),
-      genlayer: proof(stored, mode),
+      genlayer: proof(stored, "deterministic"),
       disclaimer: stored.consensusStatus === "undetermined"
         ? "Provisional contract verdict: GenLayer consensus was undetermined, so this result is not authoritative. AlphaGate does not execute trades."
         : "Decision support only. AlphaGate does not execute trades."
@@ -160,13 +152,11 @@ export async function runAlphaRouter(requestId: string, input: AlphaRouterInput,
       );
     }
 
-    const stored = await analyzeRequest(
+    const stored = await finalizeDeterministic(
       requestId,
-      input,
-      evidence,
       evidenceHash,
-      totalCost(evidence),
-      localResult
+      localResult,
+      totalCost(evidence)
     );
 
     return {
@@ -182,7 +172,7 @@ export async function runAlphaRouter(requestId: string, input: AlphaRouterInput,
       })),
       expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
       payment_trace: paymentTrace("alpha_router", evidence),
-      genlayer: proof(stored, "consensus"),
+      genlayer: proof(stored, "deterministic"),
       disclaimer: stored.consensusStatus === "undetermined"
         ? "Provisional contract verdict: GenLayer consensus was undetermined, so this result is not authoritative. AlphaGate does not execute trades."
         : "Decision support only. AlphaGate does not execute trades."
