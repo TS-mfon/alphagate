@@ -32,7 +32,7 @@ export interface PaymentTrace {
 export interface GenLayerProof {
   used: boolean;
   mode: "consensus" | "deterministic" | "local";
-  consensusStatus: "finalized" | "undetermined" | "not_used";
+  consensusStatus: "finalized" | "undetermined" | "pending" | "not_used";
   authoritative: boolean;
   contract?: string;
   transactionHash?: string;
@@ -53,7 +53,7 @@ export interface StoredRequest {
   createdAt: string;
   updatedAt: string;
   genlayerTxHash?: string;
-  consensusStatus?: "finalized" | "undetermined" | "not_used";
+  consensusStatus?: "finalized" | "undetermined" | "pending" | "not_used";
 }
 
 export interface Metrics {

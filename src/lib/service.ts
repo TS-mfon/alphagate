@@ -50,6 +50,16 @@ function proof(stored: StoredRequest, mode: GenLayerProof["mode"]): GenLayerProo
   };
 }
 
+function disclaimer(stored: StoredRequest) {
+  if (stored.consensusStatus === "pending") {
+    return "Submitted GenLayer verdict: the deterministic contract transaction is still finalizing. The result is usable as provisional decision support and AlphaGate does not execute trades.";
+  }
+  if (stored.consensusStatus === "undetermined") {
+    return "Provisional contract verdict: GenLayer consensus was undetermined, so this result is not authoritative. AlphaGate does not execute trades.";
+  }
+  return "Decision support only. AlphaGate does not execute trades.";
+}
+
 function priorResponse(request: StoredRequest) {
   if (request.status === "completed") {
     return {
@@ -69,7 +79,7 @@ function priorResponse(request: StoredRequest) {
         used: genlayerConfiguration().configured,
         mode: genlayerConfiguration().configured ? "consensus" : "local",
         consensusStatus: request.consensusStatus ?? (genlayerConfiguration().configured ? "finalized" : "not_used"),
-        authoritative: genlayerConfiguration().configured && request.consensusStatus !== "undetermined",
+        authoritative: genlayerConfiguration().configured && request.consensusStatus === "finalized",
         contract: genlayerConfiguration().contract,
         evidenceHash: request.evidenceHash
       },
@@ -124,9 +134,7 @@ export async function runTradeGuard(requestId: string, input: TradeGuardInput, i
       expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
       payment_trace: paymentTrace("trade_guard", evidence),
       genlayer: proof(stored, "deterministic"),
-      disclaimer: stored.consensusStatus === "undetermined"
-        ? "Provisional contract verdict: GenLayer consensus was undetermined, so this result is not authoritative. AlphaGate does not execute trades."
-        : "Decision support only. AlphaGate does not execute trades."
+      disclaimer: disclaimer(stored)
     };
   } catch (error) {
     await failRequest(requestId, error instanceof Error ? error.message : "TradeGuard failed");
@@ -173,9 +181,7 @@ export async function runAlphaRouter(requestId: string, input: AlphaRouterInput,
       expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
       payment_trace: paymentTrace("alpha_router", evidence),
       genlayer: proof(stored, "deterministic"),
-      disclaimer: stored.consensusStatus === "undetermined"
-        ? "Provisional contract verdict: GenLayer consensus was undetermined, so this result is not authoritative. AlphaGate does not execute trades."
-        : "Decision support only. AlphaGate does not execute trades."
+      disclaimer: disclaimer(stored)
     };
   } catch (error) {
     await failRequest(requestId, error instanceof Error ? error.message : "AlphaRouter failed");

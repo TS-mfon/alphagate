@@ -20,17 +20,16 @@ Status checked on July 27, 2026.
 | Health endpoint | `https://alphagate-gen.vercel.app/api/health` | Live |
 | TradeGuard | `https://alphagate-gen.vercel.app/api/v1/trade-guard` | Live, x402 protected |
 | AlphaRouter | `https://alphagate-gen.vercel.app/api/v1/alpha-router` | Live, x402 protected |
-| OKX.AI identity | `#7525` | Resubmitted, under review |
+| OKX.AI identity | `#7525` | Listed, eligible for recommendations |
 | GenLayer network | StudioNet | Live, gasless |
 | GenLayer contract | `0x94706ED905d3A701C448E8B393853787c7D81CA9` | Deployed |
 | GenLayer operator | `0x9C8F3AA1CB8EC981713cd2264a19dcA609Da5699` | Dedicated backend signer |
 | Treasury EOA | `0x3CEDb3FD7ee98Eae7c4C9D62210E2FbaA23a196D` | Receives X Layer USDT0 and pays upstreams from its Base USDC float |
 | Persistence | GenLayer | No database |
 
-The OKX.AI identity is registered but not publicly listed. OKX rejected the
+The OKX.AI identity is publicly listed. Earlier review rounds rejected the
 previous Base challenge and requested the CAIP-2 network `eip155:196`. The live
-services now expose X Layer USDT0 challenges and identity `#7525` was resubmitted
-successfully on July 26, 2026.
+services now expose X Layer USDT0 challenges and identity `#7525` is listed.
 
 ## Services
 
@@ -801,17 +800,20 @@ Operational recommendations:
 
 ## OKX.AI Listing
 
+The reusable build and review checklist is in
+[`docs/OKX_AGENT_LISTING_RULES.md`](docs/OKX_AGENT_LISTING_RULES.md).
+
 Identity:
 
 ```text
 #7525
 ```
 
-Current state on July 26, 2026:
+Current state on July 27, 2026:
 
 ```text
-Approval: Listing under review
-Status:   not listed
+Approval: Listed, eligible for task recommendations
+Status:   active
 ```
 
 The listing contains two API services:
@@ -820,8 +822,7 @@ The listing contains two API services:
 - AlphaRouter at `/api/v1/alpha-router`.
 
 Both endpoints expose Bazaar discovery metadata through their x402 challenges.
-The ASP cannot be considered publicly available inside OKX.AI until OKX approves
-the listing.
+The ASP is publicly available inside OKX.AI as identity `#7525`.
 
 ## Production Readiness Checklist
 
@@ -841,11 +842,17 @@ the listing.
 - [x] Execute a paid production TradeGuard request and return its result.
 - [x] Verify both deployed unpaid challenges expose `eip155:196` and USDT0.
 - [ ] Execute one paid production request for each AlphaGate service.
-- [ ] Receive OKX approval and confirm `#7525` becomes listed.
+- [x] Receive OKX approval and confirm `#7525` becomes listed.
 
 The unchecked items are release verification steps, not hidden implementation
 work. Do not mark the service fully end-to-end verified until settlement receipts
 and successful paid responses have been observed.
+
+GenLayer `grossUnits`, `upstreamCostUnits`, and `retainedUnits` are request
+accounting values. They are not a wallet balance and must not be reported as
+settled revenue without a successful payment receipt or an on-chain treasury
+transfer. Tests that use the same address as payer and treasury produce no net
+incoming balance.
 
 ### Verified Production Settlement
 

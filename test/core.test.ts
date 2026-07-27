@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
 import { deterministicTradeGuard } from "../src/lib/decision";
-import { GENLAYER_WAIT_POLICY } from "../src/lib/genlayer";
+import { GENLAYER_WAIT_POLICY, pendingStored } from "../src/lib/genlayer";
 import { canonicalJson, requestId, sha256 } from "../src/lib/hash";
 import {
   clearLocalRequests,
@@ -172,6 +172,35 @@ describe("GenLayer serverless timing policy", () => {
     assert.ok(analysisWait <= 60_000);
     assert.ok(failureWait <= 10_000);
     assert.ok(45_000 + 20_000 + analysisWait + failureWait < 150_000);
+  });
+
+  it("returns a submitted deterministic verdict instead of a false failure", () => {
+    const request = stored({
+      status: "claimed",
+      grossUnits: "100000",
+      upstreamCostUnits: "0",
+      retainedUnits: "100000",
+      result: {}
+    });
+    const result = {
+      verdict: "SIZE_DOWN",
+      risk_score: 55,
+      max_position_usd: "525",
+      reasons: ["Technical bias is not confirmed."]
+    };
+
+    const pending = pendingStored(
+      request,
+      "0x" + "66".repeat(32),
+      "0x" + "77".repeat(32),
+      result,
+      16_000n
+    );
+
+    assert.equal(pending.status, "completed");
+    assert.equal(pending.consensusStatus, "pending");
+    assert.equal(pending.retainedUnits, "84000");
+    assert.deepEqual(pending.result, result);
   });
 });
 

@@ -172,6 +172,46 @@ function provisionalStored(
   };
 }
 
+function pendingTransactionHash(error: unknown) {
+  if (!(error instanceof AlphaGateError) || error.code !== "genlayer_pending") {
+    return undefined;
+  }
+  const hash = error.fields.transaction_hash;
+  return typeof hash === "string" ? hash : undefined;
+}
+
+export function pendingStored(
+  request: StoredRequest,
+  transactionHash: string,
+  evidenceHash: string,
+  result: unknown,
+  upstreamCostUnits: bigint
+): StoredRequest {
+  return {
+    ...request,
+    status: "completed",
+    evidenceHash,
+    result,
+    upstreamCostUnits: upstreamCostUnits.toString(),
+    retainedUnits: retainedUnits(BigInt(request.grossUnits), upstreamCostUnits).toString(),
+    updatedAt: new Date().toISOString(),
+    genlayerTxHash: transactionHash,
+    consensusStatus: "pending"
+  };
+}
+
+async function recoverCompletedRequest(requestId: string, transactionHash: string) {
+  try {
+    const stored = parseStored(
+      await read<Record<string, unknown>>("get_request", [requestId]),
+      transactionHash
+    );
+    return stored.status === "completed" ? stored : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getRequest(requestId: string) {
   if (!configured()) return getLocalRequest(requestId);
   try {
@@ -249,12 +289,29 @@ export async function finalizeDeterministic(
   if (!configured()) return localFinalize(requestId, evidenceHash, result, upstreamCostUnits, "deterministic");
   const request = await getRequest(requestId);
   if (!request) throw new AlphaGateError("request_missing", "Request claim was not found", 409);
-  const outcome = await write("finalize_deterministic", [
-    requestId,
-    evidenceHash,
-    JSON.stringify(result),
-    upstreamCostUnits
-  ]);
+  let outcome: WriteOutcome;
+  try {
+    outcome = await write("finalize_deterministic", [
+      requestId,
+      evidenceHash,
+      JSON.stringify(result),
+      upstreamCostUnits
+    ]);
+  } catch (error) {
+    const transactionHash = pendingTransactionHash(error);
+    if (!transactionHash) throw error;
+
+    const recovered = await recoverCompletedRequest(requestId, transactionHash);
+    if (recovered) return recovered;
+
+    return pendingStored(
+      request,
+      transactionHash,
+      evidenceHash,
+      result,
+      upstreamCostUnits
+    );
+  }
   if (outcome.consensusStatus === "undetermined") {
     return provisionalStored(request, outcome, evidenceHash, upstreamCostUnits);
   }

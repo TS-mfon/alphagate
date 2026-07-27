@@ -110,6 +110,26 @@ export const discoveryExtensions = {
   alpha_router: alphaRouterDiscovery
 } as const;
 
+const settlementFailedResponseBody: NonNullable<RouteConfig["settlementFailedResponseBody"]> = (
+  _context,
+  failure
+) => {
+  const details = failure as typeof failure & {
+    errorMessage?: string;
+    errorReason?: string;
+  };
+  return {
+    contentType: "application/json",
+    body: {
+      error: "payment_settlement_failed",
+      message: details.errorMessage
+        ?? details.errorReason
+        ?? "The payment authorization could not be settled on X Layer.",
+      retryable: true
+    }
+  };
+};
+
 const configs: Record<"trade_guard" | "alpha_router", RouteConfig> = {
   trade_guard: {
     accepts: {
@@ -121,6 +141,7 @@ const configs: Record<"trade_guard" | "alpha_router", RouteConfig> = {
     },
     description: "Pre-trade risk gate for liquid crypto pairs and Base ERC-20 tokens.",
     mimeType: "application/json",
+    settlementFailedResponseBody,
     extensions: tradeGuardDiscovery
   },
   alpha_router: {
@@ -133,6 +154,7 @@ const configs: Record<"trade_guard" | "alpha_router", RouteConfig> = {
     },
     description: "Consensus-backed trade plan with entry, stop, targets, and risk-bounded position sizing.",
     mimeType: "application/json",
+    settlementFailedResponseBody,
     extensions: alphaRouterDiscovery
   }
 };
